@@ -150,13 +150,26 @@ export class GeminiEmbeddingService implements EmbeddingService {
 
     return data.embeddings.map((item) => {
       let vec = item.values
+      console.log(`[GeminiEmbeddingService] Received vector of length: ${vec.length}`)
+
       // If the model returns more than 1536 dimensions, slice it
       if (vec.length > 1536) {
         vec = vec.slice(0, 1536)
       }
+      
       // If the model returns fewer than 1536 dimensions, pad it with zeros
       const padCount = 1536 - vec.length
-      return [...vec, ...Array(padCount).fill(0)]
+      if (padCount > 0) {
+        vec = [...vec, ...Array(padCount).fill(0)]
+      }
+
+      // Re-normalize the vector to magnitude = 1.0 to ensure correct cosine similarity calculations
+      const magnitude = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0))
+      if (magnitude > 0 && Math.abs(magnitude - 1.0) > 1e-5) {
+        vec = vec.map((val) => val / magnitude)
+      }
+
+      return vec
     })
   }
 }
