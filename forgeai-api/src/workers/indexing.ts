@@ -330,13 +330,26 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
 }
 
 // Instantiate and export the worker
+const connection = getRedisConnection()
+
+console.log(`[worker] Initializing indexing worker for queue: ${INDEX_QUEUE_NAME}`)
+
+connection.on('connect', () => {
+  console.log('✅ Worker Redis connection established')
+})
+
+connection.on('error', (err) => {
+  console.error('❌ Worker Redis connection error:', err.message)
+})
+
 export const indexingWorker = new Worker(
   INDEX_QUEUE_NAME,
   async (job: Job<IndexingJobData>) => {
+    console.log(`[worker] Processing job ${job.id} for repo: ${job.data?.repositoryId}`)
     await processIndexingJob(job)
   },
   {
-    connection: getRedisConnection() as any,
+    connection: connection as any,
     concurrency: 1, // Process one repo at a time to prevent CPU/IO spikes
   }
 )
