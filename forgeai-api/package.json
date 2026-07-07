@@ -1,0 +1,50 @@
+{
+  "name": "forgeai-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ForgeAI backend API — Express + TypeScript + Prisma",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format cjs --dts --clean",
+    "start": "node dist/index.js",
+    "lint": "eslint src/ --ext .ts",
+    "format": "prettier --write 'src/**/*.ts' 'prisma/**/*.prisma'",
+    "format:check": "prettier --check 'src/**/*.ts'",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "@prisma/client": "^6.9.0",
+    "bullmq": "^5.31.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.6.1",
+    "jsonwebtoken": "^9.0.2",
+    "p-limit": "^7.3.0",
+    "simple-git": "^3.36.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.30.0",
+    "@typescript-eslint/parser": "^8.30.0",
+    "eslint": "^9.25.0",
+    "prettier": "^3.5.3",
+    "prisma": "^6.9.0",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.63.0"
+  }
+}

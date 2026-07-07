@@ -1,0 +1,82 @@
+// ForgeAI Prisma Schema v0
+// --------------------------
+// Phase 0: User, Workspace, Repository models
+// Phase 1 will add: CodeChunk (with pgvector embeddings)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum IndexingStatus {
+  PENDING
+  INDEXING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id          String      @id @default(cuid())
+  githubId    Int         @unique
+  username    String      @unique
+  displayName String?
+  avatarUrl   String?
+  email       String?
+  githubToken String      // AES-256-GCM encrypted
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  workspaces  Workspace[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id           String       @id @default(cuid())
+  name         String
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repositories Repository[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("workspaces")
+}
+
+model Repository {
+  id             String         @id @default(cuid())
+  name           String
+  owner          String
+  githubUrl      String
+  defaultBranch  String         @default("main")
+  workspaceId    String
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  indexingStatus IndexingStatus @default(PENDING)
+  lastIndexedAt  DateTime?
+  chunks         CodeChunk[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([workspaceId, githubUrl])
+  @@map("repositories")
+}
+
+model CodeChunk {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  filePath     String
+  content      String
+  startLine    Int
+  endLine      Int
+  embedding    Unsupported("vector(1536)")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("code_chunks")
+}
