@@ -52,6 +52,55 @@ export class OpenAILlmService implements LlmService {
 }
 
 /**
+ * Groq implementation using llama-3.3-70b-versatile via OpenAI-compatible API.
+ */
+export class GroqLlmService implements LlmService {
+  private apiKey: string
+  private model: string
+
+  constructor(apiKey: string, model = 'llama-3.3-70b-versatile') {
+    this.apiKey = apiKey
+    this.model = model
+  }
+
+  async generateAnswer(prompt: string, systemPrompt?: string): Promise<string> {
+    if (!this.apiKey) {
+      throw new Error('Groq API Key is missing')
+    }
+
+    const messages: Array<{ role: string; content: string }> = []
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt })
+    }
+    messages.push({ role: 'user', content: prompt })
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        temperature: 0.2,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Groq Chat API error: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>
+    }
+
+    return data.choices[0]?.message?.content || 'No response returned from Groq.'
+  }
+}
+
+/**
  * Gemini implementation using gemini-2.5-flash.
  */
 export class GeminiLlmService implements LlmService {
@@ -126,7 +175,7 @@ export class MockLlmService implements LlmService {
 
     return `### ForgeAI Demo Mode Response (No API Keys Configured)
 
-This is a simulated answer because no **OpenAI API Key** was provided in the backend configurations. 
+This is a simulated answer because no LLM API key was provided in the backend configuration.
 
 **Context Received:**
 I received the following source files for retrieval context:
@@ -136,14 +185,20 @@ ${filesList}
 "${prompt.slice(prompt.lastIndexOf('User Query:') + 11).trim()}"
 
 **Suggested Response:**
-If OpenAI keys were active, a semantic synthesis of these files would be displayed here. To enable live LLM completions, please define \`OPENAI_API_KEY\` in your \`forgeai-api/.env\` file.`
+To enable live LLM completions, define \`GROQ_API_KEY\` in your \`forgeai-api/.env\` file.`
   }
 }
 
 /**
  * Get active LlmService instance based on configured environment variables.
+ * Priority: Groq → Gemini → OpenAI → Mock
  */
 export function getLlmService(): LlmService {
+  if (env.GROQ_API_KEY) {
+    console.log('Using GroqLlmService (llama-3.3-70b-versatile)')
+    return new GroqLlmService(env.GROQ_API_KEY)
+  }
+
   if (env.GEMINI_API_KEY) {
     console.log('Using GeminiLlmService')
     return new GeminiLlmService(env.GEMINI_API_KEY)
@@ -154,6 +209,6 @@ export function getLlmService(): LlmService {
     return new OpenAILlmService(env.OPENAI_API_KEY)
   }
 
-  console.warn('⚠️ No OpenAI or Gemini API key found in env. Falling back to MockLlmService (Demo Mode).')
+  console.warn('⚠️ No Groq, Gemini, or OpenAI API key found in env. Falling back to MockLlmService (Demo Mode).')
   return new MockLlmService()
 }

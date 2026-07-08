@@ -16,6 +16,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
 })
 
 function validateEnv() {
