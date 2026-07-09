@@ -33,7 +33,7 @@
 | Queue | BullMQ + Redis (Upstash) |
 | Auth | GitHub OAuth + JWT (httpOnly cookies) |
 | Git Ops | Octokit + simple-git |
-| Embeddings | Abstracted client (Voyage AI / OpenAI) |
+| Embeddings | Abstracted client (Google Gemini / Voyage AI / OpenAI) |
 | Object Storage | Cloudflare R2 (S3-compatible) |
 | Hosting | Vercel (frontend) + Render (backend) |
 
@@ -94,5 +94,6 @@ Frontend starts at `http://localhost:3000`
 | Project | Phase | Status |
 |---|---|---|
 | Phase 0 | Setup & Scaffolding | ✅ Complete |
-| Phase 1 | Foundation (import, indexing, RAG) | 🔲 Not started |
-| Phase 2 | Bug Fix Skill | 🔲 Future |
+| Phase 1 | Foundation (import, indexing, RAG) | ✅ Complete |
+| Phase 2 | Bug Fix Skill (diagnosis, diffs, GitHub flow) | ✅ Complete |
+
