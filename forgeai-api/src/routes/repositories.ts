@@ -174,6 +174,9 @@ router.get('/:id/status', async (req: Request, res: Response) => {
 
     res.json({
       id: repository.id,
+      name: repository.name,
+      owner: repository.owner,
+      githubUrl: repository.githubUrl,
       indexingStatus: repository.indexingStatus,
       lastIndexedAt: repository.lastIndexedAt,
     })

@@ -1,7 +1,7 @@
-// ForgeAI Prisma Schema v0
+// ForgeAI Prisma Schema
 // --------------------------
 // Phase 0: User, Workspace, Repository models
-// Phase 1 will add: CodeChunk (with pgvector embeddings)
+// Phase 1: CodeChunk (with pgvector embeddings)
 
 generator client {
   provider        = "prisma-client-js"

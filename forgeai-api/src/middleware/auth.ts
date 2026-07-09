@@ -23,12 +23,7 @@ declare module 'express-serve-static-core' {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = req.cookies?.[COOKIE_NAME]
 
-  console.log(`[auth-middleware] Request path: ${req.path}`)
-  console.log(`[auth-middleware] All cookies:`, req.cookies)
-  console.log(`[auth-middleware] Session token exists:`, !!token)
-
   if (!token) {
-    console.warn(`[auth-middleware] Missing token cookie: ${COOKIE_NAME}`)
     res.status(401).json({ error: 'Authentication required' })
     return
   }
@@ -36,10 +31,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as AuthPayload
     req.user = payload
-    console.log(`[auth-middleware] Token verified successfully for user: ${payload.username}`)
     next()
   } catch (err: any) {
-    console.error(`[auth-middleware] Token verification failed:`, err.message)
+    console.error(`[auth-middleware] Token verification failed for path ${req.path}:`, err.message)
     res.status(401).json({ error: 'Invalid or expired session' })
   }
 }

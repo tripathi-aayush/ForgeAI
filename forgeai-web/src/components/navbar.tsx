@@ -71,10 +71,12 @@ export function Navbar() {
               </div>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2">
-              <User className="h-4 w-4" />
-              Profile
-            </DropdownMenuItem>
+            <a href={`https://github.com/${user.username}`} target="_blank" rel="noopener noreferrer">
+              <DropdownMenuItem className="gap-2 cursor-pointer">
+                <User className="h-4 w-4" />
+                Profile (GitHub)
+              </DropdownMenuItem>
+            </a>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="gap-2 text-destructive focus:text-destructive"

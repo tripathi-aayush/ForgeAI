@@ -151,6 +151,8 @@ export default function DashboardPage() {
         onSuccess: (newRepo) => {
           setIsModalOpen(false)
           setGithubUrlInput('')
+          // Invalidate cache for this repo's status to avoid showing cached COMPLETED state
+          queryClient.invalidateQueries({ queryKey: ['repository', newRepo.id] })
           // Automatically redirect to the repo view
           setActiveRepositoryId(newRepo.id)
           router.push(`/repository/${newRepo.id}`)

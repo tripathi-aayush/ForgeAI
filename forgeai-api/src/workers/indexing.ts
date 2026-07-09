@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq'
 import simpleGit from 'simple-git'
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { getRedisConnection } from '../lib/redis'
 import { prisma, withRetry } from '../lib/prisma'
 import { decrypt } from '../lib/crypto'
@@ -28,7 +29,7 @@ interface CodeChunkInput {
 
 // Generate CUID-like local IDs for raw inserts
 function generateLocalId() {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  return crypto.randomUUID()
 }
 
 /**
@@ -115,6 +116,15 @@ function getIndexableFiles(
       continue
     }
 
+    // Ignore all .env files and common secret/private key files
+    const fileName = entry.name.toLowerCase()
+    if (
+      fileName.startsWith('.env') ||
+      ['.pem', '.key', '.p12', '.pfx', '.cert', '.crt'].includes(path.extname(fileName))
+    ) {
+      continue
+    }
+
     if (entry.isDirectory()) {
       getIndexableFiles(fullPath, baseDir, fileList)
     } else if (entry.isFile()) {
@@ -169,6 +179,8 @@ async function bulkInsertChunks(
       `[${chunk.embedding.join(',')}]`
     )
   })
+
+  query += ' ON CONFLICT (id) DO NOTHING'
 
   await prisma.$executeRawUnsafe(query, ...values)
 }
@@ -251,14 +263,18 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
     // 5. Generate chunks
     const allChunks: CodeChunkInput[] = []
     for (const filePath of filesToProcess) {
-      const content = fs.readFileSync(filePath, 'utf8')
-      if (isBinaryFile(content)) {
-        continue
+      try {
+        const content = fs.readFileSync(filePath, 'utf8')
+        if (isBinaryFile(content)) {
+          continue
+        }
+        
+        const relativePath = path.relative(cloneDir, filePath)
+        const fileChunks = chunkFile(relativePath, content, repository.id)
+        allChunks.push(...fileChunks)
+      } catch (err: any) {
+        console.warn(`⚠️ Skipped file ${filePath} due to read error: ${err.message}`)
       }
-      
-      const relativePath = path.relative(cloneDir, filePath)
-      const fileChunks = chunkFile(relativePath, content, repository.id)
-      allChunks.push(...fileChunks)
     }
 
     console.log(`Generated ${allChunks.length} chunks from files.`)

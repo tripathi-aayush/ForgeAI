@@ -13,10 +13,10 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   ENCRYPTION_KEY: z.string().length(64, 'ENCRYPTION_KEY must be a 64-char hex string (32 bytes)'),
   FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL'),
-  OPENAI_API_KEY: z.string().optional(),
-  VOYAGE_API_KEY: z.string().optional(),
-  GEMINI_API_KEY: z.string().optional(),
-  GROQ_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  VOYAGE_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  GEMINI_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  GROQ_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 })
 
 function validateEnv() {

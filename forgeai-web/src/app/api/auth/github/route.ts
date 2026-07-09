@@ -12,7 +12,7 @@ const BACKEND_URL =
  * is applied to the Next.js response directly — guaranteeing it's on the
  * same origin (localhost:3000) as the callback URL.
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   // Ask Express to build the authorization URL + state cookie
   const backendResponse = await fetch(
     `${BACKEND_URL}/api/auth/github`,
@@ -25,7 +25,7 @@ export async function GET(_request: NextRequest) {
 
   if (!githubUrl) {
     console.error('[auth/github] No location header from Express')
-    return NextResponse.redirect(new URL('/?error=auth_failed', 'http://localhost:3000'))
+    return NextResponse.redirect(new URL('/?error=auth_failed', request.url))
   }
 
   // Redirect browser to GitHub
