@@ -12,5 +12,11 @@ export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
 export const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 export const GITHUB_USER_URL = 'https://api.github.com/user'
 
-// OAuth scopes — start with read-only user info, expand in Phase 1
-export const GITHUB_SCOPES = 'read:user user:email'
+// OAuth scopes — 'repo' is required for Phase 2 (branch/commit/PR operations)
+export const GITHUB_SCOPES = 'read:user user:email repo'
+
+// Phase 2: Bug Fix Skill
+export const MAX_BUGFIX_CONTEXT_CHUNKS = 8
+// Fallback regex — primary check uses repository.defaultBranch dynamically
+export const PROTECTED_BRANCH_PATTERN = /^(main|master|develop)$/
+

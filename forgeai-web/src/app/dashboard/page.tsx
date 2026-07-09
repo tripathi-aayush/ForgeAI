@@ -10,7 +10,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { GitBranch, Plus, Search, Terminal, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react'
+import { GitBranch, Plus, Search, Terminal, AlertTriangle, CheckCircle, RefreshCw, ExternalLink } from 'lucide-react'
 
 // Fetch workspaces with repos
 const fetchWorkspaces = async () => {
@@ -55,6 +55,14 @@ export default function DashboardPage() {
     queryFn: fetchWorkspaces,
     enabled: isAuthenticated,
     staleTime: 10000,
+  })
+
+  // Load recent skill runs using react-query
+  const { data: skillRuns = [] } = useQuery<any[]>({
+    queryKey: ['skillRuns', activeWorkspaceId],
+    queryFn: () => api<any[]>(`/api/workspaces/${activeWorkspaceId}/skill-runs`),
+    enabled: isAuthenticated && !!activeWorkspaceId,
+    refetchInterval: 10000,
   })
 
   // Sync react-query cache with Zustand store
@@ -302,6 +310,67 @@ export default function DashboardPage() {
               />
             </div>
           </div>
+
+          {/* Recent Bug Fixes History */}
+          {skillRuns.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <Terminal className="h-5 w-5 text-primary" />
+                Recent Bug Fix Attempts
+              </h2>
+              <div className="grid gap-3">
+                {skillRuns.map((run) => (
+                  <div
+                    key={run.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border/40 bg-card/10 hover:bg-card/25 backdrop-blur-md transition-all"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-foreground">
+                          {run.repository?.name || 'Repository'}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          ({run.repository?.owner})
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono line-clamp-1 max-w-xl">
+                        Error: {run.input}
+                      </p>
+                      <span className="text-[10px] text-muted-foreground/60 block">
+                        Attempted {new Date(run.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                          run.status === 'APPROVED'
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : run.status === 'REJECTED'
+                            ? 'bg-rose-500/10 text-rose-400'
+                            : 'bg-yellow-500/10 text-yellow-500'
+                        }`}
+                      >
+                        {run.status.toLowerCase()}
+                      </span>
+
+                      {run.prUrl && (
+                        <a
+                          href={run.prUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded bg-secondary/80 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-primary border border-border transition-all"
+                        >
+                          View PR
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
       </div>
 

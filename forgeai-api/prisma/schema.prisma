@@ -2,6 +2,7 @@
 // --------------------------
 // Phase 0: User, Workspace, Repository models
 // Phase 1: CodeChunk (with pgvector embeddings)
+// Phase 2: SkillRun (bug fix tracking)
 
 generator client {
   provider        = "prisma-client-js"
@@ -19,6 +20,16 @@ enum IndexingStatus {
   INDEXING
   COMPLETED
   FAILED
+}
+
+enum SkillType {
+  BUGFIX
+}
+
+enum SkillRunStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
 }
 
 model User {
@@ -42,6 +53,7 @@ model Workspace {
   userId       String
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   repositories Repository[]
+  skillRuns    SkillRun[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -59,6 +71,7 @@ model Repository {
   indexingStatus IndexingStatus @default(PENDING)
   lastIndexedAt  DateTime?
   chunks         CodeChunk[]
+  skillRuns      SkillRun[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -79,4 +92,21 @@ model CodeChunk {
   updatedAt    DateTime   @updatedAt
 
   @@map("code_chunks")
+}
+
+model SkillRun {
+  id           String         @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryId String
+  repository   Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  skillType    SkillType      @default(BUGFIX)
+  input        String         // The error message / stack trace
+  proposedDiff Json?          // { filePath, startLine, endLine, originalCode, proposedCode, explanation }
+  status       SkillRunStatus @default(PROPOSED)
+  prUrl        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("skill_runs")
 }

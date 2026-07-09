@@ -47,17 +47,32 @@ export interface Workspace {
   updatedAt: string
 }
 
+export interface BugfixProposal {
+  id: string
+  confidence: 'verified' | 'low'
+  diagnosis: {
+    filePath: string
+    startLine: number
+    endLine: number
+    originalCode: string
+    proposedCode: string
+    explanation: string
+  }
+}
+
 interface WorkspaceState {
   workspaces: Workspace[]
   activeWorkspaceId: string | null
   activeRepositoryId: string | null
   activeFilePath: string | null
   activeFileContent: string | null
+  activeBugfix: BugfixProposal | null
   setWorkspaces: (workspaces: Workspace[]) => void
   setActiveWorkspaceId: (id: string | null) => void
   setActiveRepositoryId: (id: string | null) => void
   setActiveFilePath: (path: string | null) => void
   setActiveFileContent: (content: string | null) => void
+  setActiveBugfix: (bugfix: BugfixProposal | null) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -66,6 +81,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activeRepositoryId: null,
   activeFilePath: null,
   activeFileContent: null,
+  activeBugfix: null,
   setWorkspaces: (workspaces) =>
     set((state) => {
       const activeId = state.activeWorkspaceId || workspaces[0]?.id || null
@@ -73,7 +89,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     }),
   setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
   setActiveRepositoryId: (activeRepositoryId) =>
-    set({ activeRepositoryId, activeFilePath: null, activeFileContent: null }),
+    set({ activeRepositoryId, activeFilePath: null, activeFileContent: null, activeBugfix: null }),
   setActiveFilePath: (activeFilePath) => set({ activeFilePath }),
   setActiveFileContent: (activeFileContent) => set({ activeFileContent }),
+  setActiveBugfix: (activeBugfix) => set({ activeBugfix }),
 }))
+

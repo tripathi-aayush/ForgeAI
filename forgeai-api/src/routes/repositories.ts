@@ -5,9 +5,17 @@ import { decrypt } from '../lib/crypto'
 import { indexingQueue } from '../lib/queue'
 import { getEmbeddingService } from '../services/embeddings'
 import { getLlmService } from '../services/llm'
+import { rateLimit } from '../middleware/rateLimit'
 import { IndexingStatus } from '@prisma/client'
 
 const router = Router()
+
+// Rate limit: 10 requests per minute per user for LLM-heavy endpoints
+const askRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  message: 'Too many requests. Please wait before trying again.',
+})
 
 /**
  * Utility to parse owner and repository name from various GitHub URL formats.
@@ -289,7 +297,7 @@ router.get('/:id/files/content', async (req: Request, res: Response) => {
  * POST /api/repositories/:id/ask
  * RAG-powered Q&A endpoint.
  */
-router.post('/:id/ask', async (req: Request, res: Response) => {
+router.post('/:id/ask', askRateLimit, async (req: Request, res: Response) => {
   const { id } = req.params
   const { question } = req.body
   const userId = req.user?.sub
