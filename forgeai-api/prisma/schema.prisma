@@ -3,6 +3,7 @@
 // Phase 0: User, Workspace, Repository models
 // Phase 1: CodeChunk (with pgvector embeddings)
 // Phase 2: SkillRun (bug fix tracking)
+// Phase 3: Code Review and Documentation skills
 
 generator client {
   provider        = "prisma-client-js"
@@ -24,6 +25,8 @@ enum IndexingStatus {
 
 enum SkillType {
   BUGFIX
+  REVIEW
+  DOCS
 }
 
 enum SkillRunStatus {

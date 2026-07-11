@@ -9,6 +9,8 @@ import healthRoutes from './routes/health'
 import repositoriesRoutes from './routes/repositories'
 import workspacesRoutes from './routes/workspaces'
 import bugfixRoutes from './routes/bugfix'
+import reviewRoutes from './routes/review'
+import docsRoutes from './routes/docs'
 import skillRunsRoutes from './routes/skillRuns'
 
 // Import indexing worker to start listening to the BullMQ queue
@@ -43,6 +45,8 @@ app.use('/api', requireAuth)
 
 app.use('/api/repositories', repositoriesRoutes)
 app.use('/api/repositories', bugfixRoutes)
+app.use('/api/repositories', reviewRoutes)
+app.use('/api/repositories', docsRoutes)
 app.use('/api/workspaces', workspacesRoutes)
 app.use('/api/workspaces', skillRunsRoutes)
 

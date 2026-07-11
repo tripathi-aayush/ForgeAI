@@ -311,66 +311,97 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Bug Fixes History */}
+          {/* Unified Skill Run History */}
           {skillRuns.length > 0 && (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
                 <Terminal className="h-5 w-5 text-primary" />
-                Recent Bug Fix Attempts
+                Recent Skill Runs
               </h2>
               <div className="grid gap-3">
-                {skillRuns.map((run) => (
-                  <div
-                    key={run.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border/40 bg-card/10 hover:bg-card/25 backdrop-blur-md transition-all"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm text-foreground">
-                          {run.repository?.name || 'Repository'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          ({run.repository?.owner})
+                {skillRuns.map((run) => {
+                  // Type badge styling
+                  const typeBadge: Record<string, string> = {
+                    BUGFIX: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
+                    REVIEW: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+                    DOCS: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+                  }
+                  const typeLabel: Record<string, string> = {
+                    BUGFIX: 'Bug Fix',
+                    REVIEW: 'Review',
+                    DOCS: 'Docs',
+                  }
+                  const inputPrefix: Record<string, string> = {
+                    BUGFIX: 'Error',
+                    REVIEW: 'Diff',
+                    DOCS: 'Repo',
+                  }
+                  const skillType = run.skillType || 'BUGFIX'
+
+                  return (
+                    <div
+                      key={run.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border/40 bg-card/10 hover:bg-card/25 backdrop-blur-md transition-all"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm text-foreground">
+                            {run.repository?.name || 'Repository'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({run.repository?.owner})
+                          </span>
+                          {/* Skill type badge */}
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${typeBadge[skillType] || typeBadge.BUGFIX}`}
+                          >
+                            {typeLabel[skillType] || skillType}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono line-clamp-1 max-w-xl">
+                          {inputPrefix[skillType] || 'Input'}: {run.input}
+                        </p>
+                        <span className="text-[10px] text-muted-foreground/60 block">
+                          {new Date(run.createdAt).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground font-mono line-clamp-1 max-w-xl">
-                        Error: {run.input}
-                      </p>
-                      <span className="text-[10px] text-muted-foreground/60 block">
-                        Attempted {new Date(run.createdAt).toLocaleString()}
-                      </span>
-                    </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                          run.status === 'APPROVED'
-                            ? 'bg-emerald-500/10 text-emerald-400'
-                            : run.status === 'REJECTED'
-                            ? 'bg-rose-500/10 text-rose-400'
-                            : 'bg-yellow-500/10 text-yellow-500'
-                        }`}
-                      >
-                        {run.status.toLowerCase()}
-                      </span>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {/* Run status badge (only for BUGFIX which has approve/reject) */}
+                        {skillType === 'BUGFIX' && (
+                          <span
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                              run.status === 'APPROVED'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : run.status === 'REJECTED'
+                                ? 'bg-rose-500/10 text-rose-400'
+                                : 'bg-yellow-500/10 text-yellow-500'
+                            }`}
+                          >
+                            {run.status.toLowerCase()}
+                          </span>
+                        )}
 
-                      {run.prUrl && (
-                        <a
-                          href={run.prUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded bg-secondary/80 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-primary border border-border transition-all"
-                        >
-                          View PR
-                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        </a>
-                      )}
+                        {/* PR link — only when prUrl is available */}
+                        {run.prUrl && (
+                          <a
+                            href={run.prUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded bg-secondary/80 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-primary border border-border transition-all"
+                          >
+                            View PR
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
+
         </main>
       </div>
 

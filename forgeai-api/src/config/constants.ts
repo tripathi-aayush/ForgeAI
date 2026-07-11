@@ -20,3 +20,7 @@ export const MAX_BUGFIX_CONTEXT_CHUNKS = 8
 // Fallback regex — primary check uses repository.defaultBranch dynamically
 export const PROTECTED_BRANCH_PATTERN = /^(main|master|develop)$/
 
+// Phase 3: Code Review and Documentation Skills
+export const MAX_REVIEW_CONTEXT_CHUNKS = 6
+export const MAX_DOCS_CONTEXT_CHUNKS = 8
+

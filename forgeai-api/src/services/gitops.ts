@@ -135,6 +135,67 @@ export async function openPullRequest(
 }
 
 /**
+ * Commits a full file (create or update) to a branch.
+ * Unlike commitFix, this replaces the ENTIRE file content.
+ * Used by the Docs skill to write or overwrite README.md.
+ *
+ * SHA handling:
+ *   - If the file already exists on the branch, its current SHA is fetched
+ *     via GET and included in the update call (required by GitHub API).
+ *   - If the file does NOT exist (GET returns 404), the file is created
+ *     without a SHA field.
+ *
+ * Branch protection:
+ *   Reuses the same assertNotProtectedBranch() already used by commitFix.
+ *   No separate implementation of that safety check.
+ */
+export async function commitFullFile(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branchName: string,
+  defaultBranch: string,
+  filePath: string,
+  fullContent: string,
+  message: string
+): Promise<void> {
+  // Enforce branch protection — same guard as commitFix
+  assertNotProtectedBranch(branchName, defaultBranch)
+
+  // Attempt to fetch the file's current SHA from the branch
+  let existingSha: string | undefined
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: filePath,
+      ref: branchName,
+    })
+
+    if (!Array.isArray(data) && 'sha' in data) {
+      existingSha = data.sha
+    }
+  } catch (err: any) {
+    // 404 means the file doesn't exist yet — proceed as a create
+    if (err.status !== 404) {
+      throw err
+    }
+  }
+
+  // Push the full file content (create if no sha, update if sha present)
+  await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: filePath,
+    message,
+    content: Buffer.from(fullContent).toString('base64'),
+    sha: existingSha, // undefined = create new file; string = update existing
+    branch: branchName,
+  })
+}
+
+
+/**
  * Splice new content into a specific line range of a file's text.
  * Lines are 1-indexed. The range [startLine, endLine] is inclusive.
  * Content outside this range is preserved exactly.

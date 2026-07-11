@@ -6,10 +6,11 @@ import { useAuth } from '@/hooks/use-auth'
 import { Navbar } from '@/components/navbar'
 import { api } from '@/lib/api'
 import { useWorkspaceStore } from '@/lib/store'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Editor, { DiffEditor } from '@monaco-editor/react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import ReactMarkdown from 'react-markdown'
 import {
   ArrowLeft,
   Folder,
@@ -23,6 +24,8 @@ import {
   ExternalLink,
   BookOpen,
   CheckCircle,
+  GitPullRequest,
+  FileText,
 } from 'lucide-react'
 
 // Tree node definition
@@ -43,6 +46,14 @@ interface Message {
     startLine: number
     endLine: number
   }>
+}
+
+// Review comment from API
+interface ReviewComment {
+  filePath: string
+  line: number
+  severity: 'info' | 'warning' | 'critical'
+  comment: string
 }
 
 /**
@@ -143,6 +154,24 @@ function getLanguageFromPath(filePath: string): string {
   }
 }
 
+/**
+ * Severity badge for review comments.
+ */
+function SeverityBadge({ severity }: { severity: ReviewComment['severity'] }) {
+  const styles = {
+    info: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+    warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    critical: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+  }
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${styles[severity]}`}
+    >
+      {severity}
+    </span>
+  )
+}
+
 export default function RepositoryPage({
   params,
 }: {
@@ -169,18 +198,37 @@ export default function RepositoryPage({
   const [questionInput, setQuestionInput] = useState('')
   const [isFileLoading, setIsFileLoading] = useState(false)
   const [isAsking, setIsAsking] = useState(false)
-  
+
+  // Drawer mode: ask | bugfix | review | docs
+  const [drawerMode, setDrawerMode] = useState<'ask' | 'bugfix' | 'review' | 'docs'>('ask')
+
   // Bugfix mode states
-  const [drawerMode, setDrawerMode] = useState<'ask' | 'bugfix'>('ask')
   const [bugfixInput, setBugfixInput] = useState('')
   const [isDiagnosing, setIsDiagnosing] = useState(false)
   const [isEditingFix, setIsEditingFix] = useState(false)
   const [isApprovingOrRejecting, setIsApprovingOrRejecting] = useState(false)
   const [editedCode, setEditedCode] = useState<string | null>(null)
-  
+
+  // Review mode states
+  const [reviewInput, setReviewInput] = useState('')
+  const [reviewInputType, setReviewInputType] = useState<'diff' | 'url'>('diff')
+  const [isReviewing, setIsReviewing] = useState(false)
+  const [reviewComments, setReviewComments] = useState<ReviewComment[] | null>(null)
+
+  // Docs mode states
+  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false)
+  const [docsRunId, setDocsRunId] = useState<string | null>(null)
+  const [docsDraft, setDocsDraft] = useState<string | null>(null)
+  const [isEditingDocs, setIsEditingDocs] = useState(false)
+  const [editedDocs, setEditedDocs] = useState<string>('')
+  const [isCommittingDocs, setIsCommittingDocs] = useState(false)
+  const [docsPrUrl, setDocsPrUrl] = useState<string | null>(null)
+
   const editorRef = useRef<any>(null)
   const diffEditorRef = useRef<any>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // ── Bugfix handlers ──────────────────────────────────────────────────────────
 
   const handleBugfixSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -255,6 +303,77 @@ export default function RepositoryPage({
     }
   }
 
+  // ── Review handlers ──────────────────────────────────────────────────────────
+
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!reviewInput.trim() || isReviewing) return
+
+    setIsReviewing(true)
+    setReviewComments(null)
+    try {
+      const body =
+        reviewInputType === 'url'
+          ? { prUrl: reviewInput.trim() }
+          : { diff: reviewInput.trim() }
+
+      const data = await api<{ id: string; comments: ReviewComment[]; commentCount: number }>(
+        `/api/repositories/${repoId}/review`,
+        { method: 'POST', body: JSON.stringify(body) }
+      )
+      setReviewComments(data.comments)
+    } catch (err: any) {
+      console.error('Review failed:', err)
+      alert(`Review failed: ${err.message}`)
+    } finally {
+      setIsReviewing(false)
+    }
+  }
+
+  // ── Docs handlers ────────────────────────────────────────────────────────────
+
+  const handleGenerateDocs = async () => {
+    if (isGeneratingDocs) return
+    setIsGeneratingDocs(true)
+    setDocsDraft(null)
+    setDocsRunId(null)
+    setDocsPrUrl(null)
+    setIsEditingDocs(false)
+    try {
+      const data = await api<{ id: string; draft: string }>(
+        `/api/repositories/${repoId}/docs`,
+        { method: 'POST', body: JSON.stringify({}) }
+      )
+      setDocsRunId(data.id)
+      setDocsDraft(data.draft)
+      setEditedDocs(data.draft)
+    } catch (err: any) {
+      console.error('Docs generation failed:', err)
+      alert(`Documentation generation failed: ${err.message}`)
+    } finally {
+      setIsGeneratingDocs(false)
+    }
+  }
+
+  const handleCommitDocs = async () => {
+    if (!docsRunId || isCommittingDocs) return
+    setIsCommittingDocs(true)
+    try {
+      const contentToCommit = isEditingDocs ? editedDocs : (docsDraft || '')
+      const data = await api<{ status: string; prUrl: string; branchName: string }>(
+        `/api/repositories/${repoId}/docs/${docsRunId}/commit`,
+        { method: 'POST', body: JSON.stringify({ editedContent: contentToCommit }) }
+      )
+      setDocsPrUrl(data.prUrl)
+    } catch (err: any) {
+      console.error('Docs commit failed:', err)
+      alert(`Commit failed: ${err.message}`)
+    } finally {
+      setIsCommittingDocs(false)
+    }
+  }
+
+  // ── Shared queries ────────────────────────────────────────────────────────────
 
   // Fetch repository metadata
   const { data: repo, isLoading: repoLoading } = useQuery({
@@ -262,7 +381,6 @@ export default function RepositoryPage({
     queryFn: () => api<any>(`/api/repositories/${repoId}/status`),
     enabled: isAuthenticated,
     refetchInterval: (query) => {
-      // Poll faster if indexing is not completed yet
       const data = query.state.data as any
       if (data && (data.indexingStatus === 'INDEXING' || data.indexingStatus === 'PENDING')) {
         return 3000
@@ -325,7 +443,6 @@ export default function RepositoryPage({
     const question = questionInput.trim()
     setQuestionInput('')
 
-    // Append user message
     const userMsgId = `user_${Date.now()}`
     const userMsg: Message = { id: userMsgId, sender: 'user', text: question }
     setChatMessages((prev) => [...prev, userMsg])
@@ -341,7 +458,6 @@ export default function RepositoryPage({
         }
       )
 
-      // Append AI response with citations
       const aiMsg: Message = {
         id: `ai_${Date.now()}`,
         sender: 'ai',
@@ -367,8 +483,7 @@ export default function RepositoryPage({
   // Helper to open citation file and highlight lines
   const handleCitationClick = async (filePath: string, startLine: number, endLine: number) => {
     await handleFileClick(filePath)
-    
-    // Attempt to select lines in Monaco Editor when loaded
+
     setTimeout(() => {
       if (editorRef.current) {
         editorRef.current.revealLineInCenter(startLine)
@@ -431,7 +546,14 @@ export default function RepositoryPage({
 
   const fileTree = buildFileTree(files)
 
-  // Render headers loading states
+  // Group review comments by filePath
+  const groupedComments =
+    reviewComments?.reduce<Record<string, ReviewComment[]>>((acc, c) => {
+      if (!acc[c.filePath]) acc[c.filePath] = []
+      acc[c.filePath].push(c)
+      return acc
+    }, {}) ?? {}
+
   if (authLoading || repoLoading) {
     return (
       <div className="flex min-h-screen flex-col bg-[oklch(0.08_0.02_260)]">
@@ -567,7 +689,7 @@ export default function RepositoryPage({
           </div>
         </main>
 
-        {/* Right Panel - RAG Q&A or Bug Fix Drawer */}
+        {/* Right Panel - Multi-mode Skill Drawer */}
         <aside className="w-[380px] flex flex-col bg-card/10 shrink-0">
           <div className="p-3 border-b border-border/30 flex flex-col gap-2 bg-card/5">
             <div className="flex items-center justify-between">
@@ -578,38 +700,44 @@ export default function RepositoryPage({
                     ? 'Fix Proposal'
                     : drawerMode === 'ask'
                     ? 'Ask ForgeAI'
-                    : 'Fix a Bug'}
+                    : drawerMode === 'bugfix'
+                    ? 'Fix a Bug'
+                    : drawerMode === 'review'
+                    ? 'Code Review'
+                    : 'Generate Docs'}
                 </span>
               </div>
             </div>
+            {/* 4-tab mode toggle — hidden when a bugfix proposal is active */}
             {activeBugfix === null && (
-              <div className="grid grid-cols-2 gap-1 bg-secondary/20 p-0.5 rounded-lg border border-border/40">
-                <button
-                  onClick={() => setDrawerMode('ask')}
-                  className={`py-1 text-[10px] font-semibold uppercase tracking-wider rounded-md transition-all ${
-                    drawerMode === 'ask'
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Ask Q&A
-                </button>
-                <button
-                  onClick={() => setDrawerMode('bugfix')}
-                  className={`py-1 text-[10px] font-semibold uppercase tracking-wider rounded-md transition-all ${
-                    drawerMode === 'bugfix'
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Fix a Bug
-                </button>
+              <div className="grid grid-cols-4 gap-0.5 bg-secondary/20 p-0.5 rounded-lg border border-border/40">
+                {(['ask', 'bugfix', 'review', 'docs'] as const).map((mode) => {
+                  const labels: Record<string, string> = {
+                    ask: 'Ask',
+                    bugfix: 'Fix Bug',
+                    review: 'Review',
+                    docs: 'Docs',
+                  }
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => setDrawerMode(mode)}
+                      className={`py-1 text-[9px] font-semibold uppercase tracking-wider rounded-md transition-all ${
+                        drawerMode === mode
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {labels[mode]}
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
 
+          {/* ── Bugfix Proposal Active View ─────────────────────────────── */}
           {activeBugfix !== null ? (
-            /* Bugfix Proposal Active View */
             <div className="flex-1 flex flex-col h-full overflow-hidden">
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 <div className="rounded-xl border border-border/40 bg-secondary/25 p-4 space-y-3">
@@ -694,8 +822,9 @@ export default function RepositoryPage({
                 )}
               </div>
             </div>
+
+          /* ── Bug Fix Submission View ─────────────────────────────────── */
           ) : drawerMode === 'bugfix' ? (
-            /* Bugfix Submission View */
             <div className="flex-1 flex flex-col justify-between p-4 space-y-4">
               <div className="flex-1 flex flex-col justify-center text-center text-muted-foreground space-y-4">
                 <div className="flex justify-center">
@@ -731,8 +860,244 @@ export default function RepositoryPage({
                 </Button>
               </form>
             </div>
+
+          /* ── Code Review Mode ────────────────────────────────────────── */
+          ) : drawerMode === 'review' ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {reviewComments === null ? (
+                /* Review input form */
+                <div className="flex-1 flex flex-col justify-between p-4 space-y-4">
+                  <div className="flex-1 flex flex-col justify-center text-center text-muted-foreground space-y-4">
+                    <div className="flex justify-center">
+                      <GitPullRequest className="h-12 w-12 text-muted-foreground/20" />
+                    </div>
+                    <h3 className="font-semibold text-sm text-foreground/80">AI Code Review</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed max-w-[280px] mx-auto">
+                      Paste a Git diff or a GitHub PR URL. ForgeAI will analyze the changes in context and return structured feedback.
+                    </p>
+                  </div>
+                  <form onSubmit={handleReviewSubmit} className="space-y-3">
+                    {/* Input type toggle */}
+                    <div className="grid grid-cols-2 gap-1 bg-secondary/20 p-0.5 rounded-lg border border-border/40">
+                      {(['diff', 'url'] as const).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => { setReviewInputType(type); setReviewInput('') }}
+                          className={`py-1 text-[9px] font-semibold uppercase tracking-wider rounded-md transition-all ${
+                            reviewInputType === type
+                              ? 'bg-primary text-primary-foreground'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {type === 'diff' ? 'Paste Diff' : 'PR URL'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {reviewInputType === 'diff' ? (
+                      <textarea
+                        placeholder="Paste git diff output here..."
+                        value={reviewInput}
+                        onChange={(e) => setReviewInput(e.target.value)}
+                        disabled={isReviewing}
+                        rows={7}
+                        className="w-full rounded-lg border border-border/60 bg-secondary/20 p-3 text-xs focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all disabled:opacity-50 font-mono resize-none"
+                      />
+                    ) : (
+                      <input
+                        type="url"
+                        placeholder="https://github.com/owner/repo/pull/123"
+                        value={reviewInput}
+                        onChange={(e) => setReviewInput(e.target.value)}
+                        disabled={isReviewing}
+                        className="w-full rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all disabled:opacity-50"
+                      />
+                    )}
+
+                    <Button
+                      type="submit"
+                      disabled={isReviewing || !reviewInput.trim()}
+                      className="w-full text-xs font-semibold"
+                    >
+                      {isReviewing ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Analyzing Diff...
+                        </>
+                      ) : (
+                        'Analyze Diff'
+                      )}
+                    </Button>
+                  </form>
+                </div>
+              ) : (
+                /* Review results */
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                    <span className="text-xs font-semibold text-foreground/80">
+                      {reviewComments.length === 0
+                        ? 'No issues found ✅'
+                        : `${reviewComments.length} comment${reviewComments.length !== 1 ? 's' : ''}`}
+                    </span>
+                    <button
+                      onClick={() => { setReviewComments(null); setReviewInput('') }}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← New review
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-4">
+                    {reviewComments.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-xs">
+                        LGTM! No issues detected in this diff.
+                      </div>
+                    ) : (
+                      Object.entries(groupedComments).map(([filePath, comments]) => (
+                        <div key={filePath} className="space-y-2">
+                          <div className="text-[10px] font-mono font-semibold text-primary/80 truncate bg-primary/5 px-2 py-1 rounded border border-primary/10">
+                            {filePath}
+                          </div>
+                          {comments.map((c, i) => (
+                            <div
+                              key={i}
+                              className="rounded-lg border border-border/40 bg-secondary/15 p-3 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <SeverityBadge severity={c.severity} />
+                                <span className="text-[9px] font-mono text-muted-foreground">
+                                  line {c.line}
+                                </span>
+                              </div>
+                              <p className="text-xs text-foreground leading-relaxed">{c.comment}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+          /* ── Documentation Mode ──────────────────────────────────────── */
+          ) : drawerMode === 'docs' ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {docsDraft === null ? (
+                /* Docs generation start */
+                <div className="flex-1 flex flex-col justify-between p-4 space-y-4">
+                  <div className="flex-1 flex flex-col justify-center text-center text-muted-foreground space-y-4">
+                    <div className="flex justify-center">
+                      <FileText className="h-12 w-12 text-muted-foreground/20" />
+                    </div>
+                    <h3 className="font-semibold text-sm text-foreground/80">Generate README</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed max-w-[280px] mx-auto">
+                      ForgeAI will analyze the repository structure, manifest file, and key source files to draft a professional README.md.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleGenerateDocs}
+                    disabled={isGeneratingDocs || isIndexing}
+                    className="w-full text-xs font-semibold"
+                  >
+                    {isGeneratingDocs ? (
+                      <>
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        Generating README...
+                      </>
+                    ) : (
+                      'Generate README'
+                    )}
+                  </Button>
+                </div>
+              ) : docsPrUrl ? (
+                /* Docs committed — PR opened */
+                <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
+                  <CheckCircle className="h-12 w-12 text-emerald-400" />
+                  <div className="space-y-1">
+                    <h3 className="font-semibold text-sm text-foreground">Pull Request Opened!</h3>
+                    <p className="text-xs text-muted-foreground">
+                      README.md has been committed and a PR is ready for review.
+                    </p>
+                  </div>
+                  <a
+                    href={docsPrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    View Pull Request
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                  <button
+                    onClick={() => {
+                      setDocsDraft(null)
+                      setDocsRunId(null)
+                      setDocsPrUrl(null)
+                      setIsEditingDocs(false)
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Generate another
+                  </button>
+                </div>
+              ) : (
+                /* Docs draft view with edit and commit */
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-border/20">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {isEditingDocs ? 'Editing Draft' : 'README Preview'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          if (isEditingDocs) setDocsDraft(editedDocs)
+                          setIsEditingDocs(!isEditingDocs)
+                        }}
+                        className="text-[10px] text-primary hover:text-primary/80 font-semibold transition-colors"
+                      >
+                        {isEditingDocs ? 'Preview' : 'Edit'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-4 py-3">
+                    {isEditingDocs ? (
+                      <textarea
+                        value={editedDocs}
+                        onChange={(e) => setEditedDocs(e.target.value)}
+                        className="w-full h-full min-h-[300px] rounded-lg border border-border/60 bg-secondary/20 p-3 text-xs font-mono focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all resize-none"
+                      />
+                    ) : (
+                      <div className="prose prose-invert prose-sm max-w-none text-xs leading-relaxed [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-xs [&>code]:text-[10px] [&>pre]:text-[10px]">
+                        <ReactMarkdown>{docsDraft || ''}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 border-t border-border/30 bg-card/5">
+                    <Button
+                      onClick={handleCommitDocs}
+                      disabled={isCommittingDocs}
+                      className="w-full text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    >
+                      {isCommittingDocs ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Committing to Repo...
+                        </>
+                      ) : (
+                        'Commit to Repo & Open PR'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           ) : (
-            /* Q&A Ask View */
+            /* ── Q&A Ask View ─────────────────────────────────────────── */
             <>
               {/* Messages list */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -762,10 +1127,8 @@ export default function RepositoryPage({
                             : 'bg-secondary/40 border border-border/40 text-foreground'
                         }`}
                       >
-                        {/* Render message body text */}
                         <div className="whitespace-pre-wrap font-sans text-xs md:text-sm">{msg.text}</div>
 
-                        {/* Citations references */}
                         {msg.citations && msg.citations.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5">
                             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
@@ -838,4 +1201,3 @@ export default function RepositoryPage({
     </div>
   )
 }
-
