@@ -82,14 +82,20 @@ function isBinaryFile(content: string): boolean {
 /**
  * Traverses directories recursively to find valid source files.
  */
-function getIndexableFiles(
+export function getIndexableFiles(
   dir: string,
   baseDir: string,
   fileList: string[] = []
 ): string[] {
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  let entries: fs.Dirent[] = []
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch (err: any) {
+    console.warn(`⚠️ Skipped traversing directory "${dir}" due to read error: ${err.message}`)
+    return fileList
+  }
   
-  // List of directories and files to ignore
+  // List of directories and files to ignore (supports partial matches and exact matches)
   const ignoredPatterns = [
     '.git',
     'node_modules',
@@ -105,48 +111,91 @@ function getIndexableFiles(
     'pnpm-lock.yaml',
     'bun.lockb',
     '.DS_Store',
+    '__pycache__',
   ]
 
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name)
-    const relativePath = path.relative(baseDir, fullPath)
-    
-    // Check if path contains ignored patterns
-    if (ignoredPatterns.some((pattern) => relativePath.split(path.sep).includes(pattern))) {
-      continue
-    }
-
-    // Ignore all .env files and common secret/private key files
-    const fileName = entry.name.toLowerCase()
-    if (
-      fileName.startsWith('.env') ||
-      ['.pem', '.key', '.p12', '.pfx', '.cert', '.crt'].includes(path.extname(fileName))
-    ) {
-      continue
-    }
-
-    if (entry.isDirectory()) {
-      getIndexableFiles(fullPath, baseDir, fileList)
-    } else if (entry.isFile()) {
-      // Validate file size
-      const stats = fs.statSync(fullPath)
-      const fileSizeKB = stats.size / 1024
-      if (fileSizeKB > MAX_FILE_SIZE_KB) {
+    try {
+      const fullPath = path.join(dir, entry.name)
+      const relativePath = path.relative(baseDir, fullPath)
+      const fileName = entry.name.toLowerCase()
+      
+      // Check if path contains ignored patterns
+      if (
+        ignoredPatterns.some((pattern) => {
+          const parts = relativePath.split(path.sep)
+          return parts.some((p) => p === pattern || p.includes(pattern))
+        })
+      ) {
         continue
       }
-      
-      // Filter out typical non-code assets by extension
-      const ext = path.extname(entry.name).toLowerCase()
-      const indexableExtensions = [
-        '.ts', '.tsx', '.js', '.jsx', '.json',
-        '.py', '.go', '.java', '.c', '.cpp', '.h', '.cs', '.rs',
-        '.rb', '.php', '.html', '.css', '.md', '.yml', '.yaml',
-        '.sh', '.txt', '.sql', '.toml', '.gradle', '.xml'
-      ]
-      
-      if (indexableExtensions.includes(ext) || ext === '') {
-        fileList.push(fullPath)
+
+      // Skip specific compiled/secret/env extensions or patterns
+      if (
+        fileName.endsWith('.pyc') ||
+        fileName.includes('.cpython-') ||
+        fileName.startsWith('.env') ||
+        ['.pem', '.key', '.p12', '.pfx', '.cert', '.crt'].includes(path.extname(fileName))
+      ) {
+        continue
       }
+
+      if (entry.isDirectory()) {
+        getIndexableFiles(fullPath, baseDir, fileList)
+      } else if (entry.isFile()) {
+        // Validate file size safely
+        let stats: fs.Stats
+        try {
+          stats = fs.statSync(fullPath)
+        } catch (statErr: any) {
+          console.warn(`⚠️ Skipped file size check for "${fullPath}": ${statErr.message}`)
+          continue
+        }
+
+        const fileSizeKB = stats.size / 1024
+        if (fileSizeKB > MAX_FILE_SIZE_KB) {
+          continue
+        }
+        
+        // Filter out typical non-code assets by extension
+        const ext = path.extname(entry.name).toLowerCase()
+
+        // Common binary, media, zip, and font extensions to explicitly ignore
+        const binaryExtensions = [
+          '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.webp',
+          '.woff', '.woff2', '.ttf', '.otf', '.eot',
+          '.exe', '.dll', '.so', '.dylib', '.class', '.jar',
+          '.zip', '.tar', '.gz', '.rar', '.7z', '.pdf', '.doc', '.docx',
+          '.xls', '.xlsx', '.ppt', '.pptx', '.mp3', '.mp4', '.avi', '.mov',
+          '.pyc', '.pyo', '.db', '.sqlite', '.pyd'
+        ]
+
+        if (binaryExtensions.includes(ext)) {
+          continue
+        }
+
+        const indexableExtensions = [
+          '.ts', '.tsx', '.js', '.jsx', '.json',
+          '.py', '.go', '.java', '.c', '.cpp', '.h', '.cs', '.rs',
+          '.rb', '.php', '.html', '.css', '.md', '.yml', '.yaml',
+          '.sh', '.txt', '.sql', '.toml', '.gradle', '.xml',
+          '.dockerfile', '.ini', '.conf', '.cfg'
+        ]
+        
+        const hasNoExt = ext === ''
+        const isCommonConfigFilename = [
+          'dockerfile', 'makefile', 'jenkinsfile', 'procfile', 'gemfile', 'rakefile'
+        ].includes(fileName)
+
+        if (
+          indexableExtensions.includes(ext) ||
+          (hasNoExt && (isCommonConfigFilename || !fileName.startsWith('.')))
+        ) {
+          fileList.push(fullPath)
+        }
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ Skipped entry "${entry.name}" in "${dir}" due to error: ${err.message}`)
     }
   }
 
