@@ -86,6 +86,19 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `MAX_INDEX_FILES` | No | `2000` | Max files to index per repo |
 | `MAX_FILE_SIZE_KB` | No | `512` | Max file size (KB) to index |
 
+### Code Execution Sandbox (Optional)
+
+| Variable | Required | Description |
+|---|---|---|
+| `JUDGE0_BASE_URL` | No | Base URL of your self-hosted Judge0 instance |
+| `JUDGE0_API_KEY` | No | Auth token required by your Judge0 instance |
+
+> **Default Safety Net (Piston API):**
+> If `JUDGE0_BASE_URL` is unset, or if requests to it fail (e.g., when the underlying GitHub Codespace sandbox is stopped), ForgeAI automatically and gracefully falls back to the public **Piston API** (`https://emkc.org/api/v2/piston`) for code execution. 
+>
+> When you want to demo or test the self-hosted sandbox path specifically, manually spin up your Codespace, update the env vars on your host environment (e.g. Render), and restart the service.
+
+
 ---
 
 ## Frontend (`forgeai-web/.env.local`)
