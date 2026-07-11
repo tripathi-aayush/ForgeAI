@@ -186,6 +186,7 @@ router.get('/:id/status', async (req: Request, res: Response) => {
       owner: repository.owner,
       githubUrl: repository.githubUrl,
       indexingStatus: repository.indexingStatus,
+      indexingError: repository.indexingError,
       lastIndexedAt: repository.lastIndexedAt,
     })
   } catch (error: any) {

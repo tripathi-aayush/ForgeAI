@@ -172,8 +172,8 @@ export default function DashboardPage() {
     )
   }
 
-  const renderStatusBadge = (status: Repository['indexingStatus']) => {
-    switch (status) {
+  const renderStatusBadge = (repo: any) => {
+    switch (repo.indexingStatus) {
       case 'PENDING':
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 px-2 py-1 text-xs font-medium text-yellow-500">
@@ -194,9 +194,16 @@ export default function DashboardPage() {
         )
       case 'FAILED':
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-1 text-xs font-medium text-rose-400">
-            <AlertTriangle className="h-3 w-3" /> Failed
-          </span>
+          <div className="flex flex-col gap-1 w-full">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-1 text-xs font-medium text-rose-400 w-fit">
+              <AlertTriangle className="h-3 w-3" /> Failed
+            </span>
+            {repo.indexingError && (
+              <span className="text-[10px] text-rose-400/80 leading-snug break-words max-w-full font-mono bg-rose-500/5 p-1.5 rounded-md border border-rose-500/10 mt-1 block">
+                Reason: {repo.indexingError}
+              </span>
+            )}
+          </div>
         )
     }
   }
@@ -254,7 +261,7 @@ export default function DashboardPage() {
                       {repo.owner}/{repo.name}
                     </span>
                     <div className="mt-1 flex items-center justify-between w-full">
-                      {renderStatusBadge(repo.indexingStatus)}
+                      {renderStatusBadge(repo)}
                     </div>
                   </button>
                 ))

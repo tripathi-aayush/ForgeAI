@@ -696,9 +696,17 @@ export default function RepositoryPage({
               <Loader2 className="h-3 w-3 animate-spin" /> Indexing codebase...
             </div>
           ) : repo.indexingStatus === 'FAILED' ? (
-            <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-xs text-rose-400 font-medium">
-              Indexing Failed
-            </span>
+            <div className="group relative flex items-center">
+              <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-xs text-rose-400 font-medium cursor-help flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" /> Indexing Failed
+              </span>
+              {repo.indexingError && (
+                <div className="absolute top-8 left-0 z-50 hidden group-hover:block w-80 rounded-lg border border-rose-500/30 bg-zinc-900 p-3 shadow-2xl text-xs text-rose-400 font-mono leading-relaxed break-words">
+                  <div className="font-bold mb-1 uppercase tracking-wider text-[9px] text-rose-300">Failure Reason:</div>
+                  {repo.indexingError}
+                </div>
+              )}
+            </div>
           ) : (
             <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-400 font-medium flex items-center gap-1">
               <CheckCircle className="h-3 w-3" /> Indexed &amp; Ready

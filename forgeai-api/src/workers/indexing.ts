@@ -265,7 +265,10 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
   await withRetry(() =>
     prisma.repository.update({
       where: { id: repositoryId },
-      data: { indexingStatus: IndexingStatus.INDEXING },
+      data: { 
+        indexingStatus: IndexingStatus.INDEXING,
+        indexingError: null
+      },
     })
   )
 
@@ -368,11 +371,15 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
   } catch (error) {
     console.error(`Indexing job failed for ${repository.id}:`, error)
     
-    // Set repository status to FAILED
+    // Set repository status to FAILED and store the failure reason
+    const errMsg = (error as Error).message || 'Unknown indexing error'
     await withRetry(() =>
       prisma.repository.update({
         where: { id: repository.id },
-        data: { indexingStatus: IndexingStatus.FAILED },
+        data: { 
+          indexingStatus: IndexingStatus.FAILED,
+          indexingError: errMsg
+        },
       })
     ).catch((dbErr) => console.error('Failed to update repository status to FAILED:', dbErr))
 

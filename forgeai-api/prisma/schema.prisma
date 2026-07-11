@@ -81,6 +81,7 @@ model Repository {
   workspaceId    String
   workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   indexingStatus IndexingStatus @default(PENDING)
+  indexingError  String?
   lastIndexedAt  DateTime?
   chunks         CodeChunk[]
   skillRuns      SkillRun[]
