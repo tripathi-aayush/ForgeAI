@@ -503,28 +503,6 @@ router.post('/:id/bugfix/:runId/execute', bugfixRateLimit, async (req: Request, 
       return
     }
 
-    // Check if execution service is configured
-    const execService = getExecutionService()
-    if (!execService) {
-      // Mark as DONE with skipped result
-      await prisma.skillRun.update({
-        where: { id: runId },
-        data: {
-          executionStatus: 'DONE',
-          executionResult: {
-            passed: false,
-            stdout: null,
-            stderr: 'Execution sandbox not configured on the server. Configure JUDGE0_BASE_URL.',
-            exitCode: null,
-            status: 'Skipped',
-            attemptedAt: new Date().toISOString(),
-          },
-        },
-      })
-      res.json({ status: 'skipped', reason: 'Execution sandbox not configured' })
-      return
-    }
-
     // Update state to QUEUED in DB before enqueuing
     await prisma.skillRun.update({
       where: { id: runId },

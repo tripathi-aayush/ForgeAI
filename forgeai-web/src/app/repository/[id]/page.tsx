@@ -939,6 +939,12 @@ export default function RepositoryPage({
                         <span>Exit Code: {executionResult?.exitCode ?? 'N/A'}</span>
                       </div>
 
+                      {executionResult?.executedVia && (
+                        <div className="text-[10px] text-muted-foreground font-mono">
+                          Backend: <span className="uppercase text-primary font-semibold">{executionResult.executedVia}</span>
+                        </div>
+                      )}
+
                       {executionResult?.capReached && (
                         <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-2.5 text-[11px] text-amber-400 leading-normal">
                           ⚠️ {executionResult.note || 'Attempt cap reached.'}

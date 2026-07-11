@@ -288,35 +288,24 @@ async function processExecutionJob(job: Job<ExecuteCodeJobData>): Promise<void> 
     console.log(`[execution-worker] Test command detected: ${testCommand}`)
   }
 
-  // ── Step 7: Submit to Judge0 ─────────────────────────────────────────────────
+  // ── Step 7: Submit to execution sandbox (Judge0 / Piston Fallback) ───────────
   const execService = getExecutionService()
-  if (!execService) {
-    console.warn('[execution-worker] Execution service not configured — writing skipped result')
-    await writeTerminalResult(skillRunId, {
-      passed: false,
-      stdout: null,
-      stderr: 'Execution sandbox not configured (JUDGE0_BASE_URL is not set).',
-      exitCode: null,
-      status: 'Not configured',
-    })
-    return
-  }
-
   let execResult: ExecutionResult
   try {
     execResult = await execService.submit(
       { sourceCode: sourceToRun, languageId },
       workspaceId,
-      skillRunId
+      skillRunId,
+      diff.filePath
     )
   } catch (err: any) {
-    console.error(`[execution-worker] Judge0 submission/poll failed:`, err.message)
+    console.error(`[execution-worker] Execution sandbox run failed:`, err.message)
     await writeTerminalResult(skillRunId, {
       passed: false,
       stdout: null,
-      stderr: `Execution infrastructure error: ${err.message}`,
+      stderr: `Execution sandbox error: ${err.message}`,
       exitCode: null,
-      status: 'Infrastructure error',
+      status: 'Execution error',
     })
     return
   }
