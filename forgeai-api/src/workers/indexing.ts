@@ -160,20 +160,6 @@ export function getIndexableFiles(
         // Filter out typical non-code assets by extension
         const ext = path.extname(entry.name).toLowerCase()
 
-        // Common binary, media, zip, and font extensions to explicitly ignore
-        const binaryExtensions = [
-          '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.webp',
-          '.woff', '.woff2', '.ttf', '.otf', '.eot',
-          '.exe', '.dll', '.so', '.dylib', '.class', '.jar',
-          '.zip', '.tar', '.gz', '.rar', '.7z', '.pdf', '.doc', '.docx',
-          '.xls', '.xlsx', '.ppt', '.pptx', '.mp3', '.mp4', '.avi', '.mov',
-          '.pyc', '.pyo', '.db', '.sqlite', '.pyd'
-        ]
-
-        if (binaryExtensions.includes(ext)) {
-          continue
-        }
-
         const indexableExtensions = [
           '.ts', '.tsx', '.js', '.jsx', '.json',
           '.py', '.go', '.java', '.c', '.cpp', '.h', '.cs', '.rs',
@@ -182,15 +168,25 @@ export function getIndexableFiles(
           '.dockerfile', '.ini', '.conf', '.cfg'
         ]
         
+        const isAllowedExtension = indexableExtensions.includes(ext)
         const hasNoExt = ext === ''
+        
         const isCommonConfigFilename = [
-          'dockerfile', 'makefile', 'jenkinsfile', 'procfile', 'gemfile', 'rakefile'
+          'dockerfile',
+          'makefile',
+          'jenkinsfile',
+          'procfile',
+          'gemfile',
+          'rakefile',
+          'readme',
+          'license',
+          'todo'
         ].includes(fileName)
 
-        if (
-          indexableExtensions.includes(ext) ||
-          (hasNoExt && (isCommonConfigFilename || !fileName.startsWith('.')))
-        ) {
+        // Strict allowlist-primary logic:
+        // Only allow matching indexable extensions or explicit extensionless text/config files.
+        // Everything else is rejected by default.
+        if (isAllowedExtension || (hasNoExt && isCommonConfigFilename)) {
           fileList.push(fullPath)
         }
       }
