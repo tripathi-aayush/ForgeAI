@@ -2,6 +2,7 @@ import { embedAndSaveChunks } from '../workers/indexing'
 import { prisma } from '../lib/prisma'
 import { env } from '../config/env'
 import { IndexingStatus } from '@prisma/client'
+import { getEmbeddingService } from '../services/embeddings'
 
 /**
  * Unit/integration test for Jina AI embedding provider fallback.
@@ -17,14 +18,10 @@ function assert(condition: boolean, message: string): void {
   }
 }
 
-async function testAsync(name: string, fn: () => Promise<void>): Promise<void> {
-  try {
-    await fn()
-    console.log(`  ✅ ${name}`)
-  } catch (err: any) {
-    console.error(`  ❌ ${name}: ${err.message}`)
-    process.exitCode = 1
-  }
+const tests: Array<{ name: string; fn: () => Promise<void> }> = []
+
+function testAsync(name: string, fn: () => Promise<void>): void {
+  tests.push({ name, fn })
 }
 
 async function setupTestRepository() {
@@ -35,7 +32,7 @@ async function setupTestRepository() {
   if (!workspace) {
     const user = await prisma.user.create({
       data: {
-        githubId: 'dummy-test-user-id-' + Math.random(),
+        githubId: Math.floor(Math.random() * 1000000),
         username: 'dummy-username-' + Math.random(),
         githubToken: 'encrypted-token'
       }
@@ -192,3 +189,105 @@ testAsync('Gemini 429 quota triggers one-directional Jina fallback, deletes dirt
     global.fetch = originalFetch
   }
 })
+
+testAsync('RAG query routing correctly uses repository.embeddingProvider to generate question embedding', async () => {
+  const originalJinaApiKey = env.JINA_API_KEY
+  const originalGeminiApiKey = env.GEMINI_API_KEY
+  const originalFetch = global.fetch
+
+  env.JINA_API_KEY = 'mock-jina-api-key'
+  env.GEMINI_API_KEY = 'mock-gemini-api-key'
+
+  const repo = await setupTestRepository()
+  // Explicitly set provider to JINA
+  await prisma.repository.update({
+    where: { id: repo.id },
+    data: { embeddingProvider: 'JINA' }
+  })
+
+  const spies: { jinaCalled: boolean; geminiCalled: boolean } = {
+    jinaCalled: false,
+    geminiCalled: false
+  }
+
+  global.fetch = (async (url: string, init?: any) => {
+    const urlString = url.toString()
+    if (urlString.includes('generativelanguage.googleapis.com')) {
+      spies.geminiCalled = true
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          embeddings: [{ values: new Array(1536).fill(0.789) }]
+        })
+      } as any
+    }
+    
+    if (urlString.includes('api.jina.ai')) {
+      spies.jinaCalled = true
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'jina-embeddings-v3',
+          object: 'list',
+          data: [{ object: 'embedding', index: 0, embedding: new Array(1024).fill(0.123) }]
+        })
+      } as any
+    }
+    
+    return originalFetch(url, init)
+  }) as any
+
+  try {
+    // 1. Correct query routing flow
+    const refreshedRepo = await prisma.repository.findUnique({ where: { id: repo.id } })
+    assert(refreshedRepo !== null, 'Repo should exist')
+    assert(refreshedRepo!.embeddingProvider === 'JINA', 'Should have JINA provider')
+
+    const embeddingService = getEmbeddingService(refreshedRepo!.embeddingProvider)
+    const embedding = await embeddingService.generateEmbedding('What is fallback?')
+
+    assert((spies.jinaCalled as any) === true, 'Jina API should have been called')
+    assert((spies.geminiCalled as any) === false, 'Gemini API should NOT have been called')
+    assert(embedding.length === 1536, 'Vector should be 1536 dimensions')
+    assert(embedding[0] === 0.123, 'Jina vector values should be 0.123')
+
+    // Reset spies
+    spies.jinaCalled = false
+    spies.geminiCalled = false
+
+    // 2. Constructed wrong routing flow (e.g. defaulting to GEMINI for JINA repo)
+    const wrongEmbeddingService = getEmbeddingService('GEMINI')
+    const wrongEmbedding = await wrongEmbeddingService.generateEmbedding('What is fallback?')
+
+    assert((spies.geminiCalled as any) === true, 'Gemini API should have been called in wrong routing')
+    assert((spies.jinaCalled as any) === false, 'Jina API should NOT have been called in wrong routing')
+    assert(wrongEmbedding[0] !== 0.123, 'Gemini embedding values must not match Jina values')
+    assert(wrongEmbedding[0] === 0.789, 'Wrong routing should return Gemini values (0.789)')
+
+    console.log('  ✅ Query routing end-to-end verified. Mismatched routing successfully detected!')
+
+  } finally {
+    await cleanupTestRepository(repo.id)
+
+    // Restore original globals
+    env.JINA_API_KEY = originalJinaApiKey
+    env.GEMINI_API_KEY = originalGeminiApiKey
+    global.fetch = originalFetch
+  }
+})
+
+async function runAll() {
+  console.log('\n🧪 Running Jina Fallback & Query Routing Tests sequentially...\n')
+  for (const t of tests) {
+    try {
+      await t.fn()
+      console.log(`  ✅ ${t.name}`)
+    } catch (err: any) {
+      console.error(`  ❌ ${t.name}:`, err.stack)
+      process.exitCode = 1
+    }
+  }
+}
+runAll()
