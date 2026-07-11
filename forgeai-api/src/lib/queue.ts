@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq'
 import { getRedisConnection } from './redis'
+import { EXECUTION_QUEUE_NAME } from '../config/constants'
 
 export const INDEX_QUEUE_NAME = 'repo-indexing'
 
@@ -11,6 +12,19 @@ export const indexingQueue = new Queue(INDEX_QUEUE_NAME, {
       type: 'exponential',
       delay: 5000,
     },
+    removeOnComplete: true,
+    removeOnFail: false,
+  },
+})
+
+// Phase 4: Code execution queue.
+// attempts: 1 — re-diagnosis is managed explicitly in the worker (not via BullMQ retries)
+// so that the attempt counter in the DB is the authoritative source of truth.
+export { EXECUTION_QUEUE_NAME }
+export const executionQueue = new Queue(EXECUTION_QUEUE_NAME, {
+  connection: getRedisConnection() as any,
+  defaultJobOptions: {
+    attempts: 1,
     removeOnComplete: true,
     removeOnFail: false,
   },

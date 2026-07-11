@@ -4,6 +4,7 @@
 // Phase 1: CodeChunk (with pgvector embeddings)
 // Phase 2: SkillRun (bug fix tracking)
 // Phase 3: Code Review and Documentation skills
+// Phase 4: Code Execution Sandbox
 
 generator client {
   provider        = "prisma-client-js"
@@ -33,6 +34,14 @@ enum SkillRunStatus {
   PROPOSED
   APPROVED
   REJECTED
+}
+
+// Tracks async machine execution state — separate from human approval (SkillRunStatus)
+enum ExecutionStatus {
+  NOT_STARTED
+  QUEUED
+  RUNNING
+  DONE
 }
 
 model User {
@@ -98,18 +107,22 @@ model CodeChunk {
 }
 
 model SkillRun {
-  id           String         @id @default(cuid())
-  workspaceId  String
-  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  repositoryId String
-  repository   Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  skillType    SkillType      @default(BUGFIX)
-  input        String         // The error message / stack trace
-  proposedDiff Json?          // { filePath, startLine, endLine, originalCode, proposedCode, explanation }
-  status       SkillRunStatus @default(PROPOSED)
-  prUrl        String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id              String          @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryId    String
+  repository      Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  skillType       SkillType       @default(BUGFIX)
+  input           String          // The error message / stack trace
+  proposedDiff    Json?           // { filePath, startLine, endLine, originalCode, proposedCode, explanation }
+  status          SkillRunStatus  @default(PROPOSED)
+  prUrl           String?
+  // Phase 4: Execution sandbox fields
+  executionStatus ExecutionStatus @default(NOT_STARTED)
+  attemptCount    Int             @default(0)   // incremented in DB before each execution attempt
+  executionResult Json?           // { stdout, stderr, exitCode, passed, language, attemptedAt, capReached? }
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@map("skill_runs")
 }

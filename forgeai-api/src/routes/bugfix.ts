@@ -9,6 +9,8 @@ import { createBugfixBranch, commitFix, openPullRequest } from '../services/gito
 import { rateLimit } from '../middleware/rateLimit'
 import { MAX_BUGFIX_CONTEXT_CHUNKS } from '../config/constants'
 import { IndexingStatus } from '@prisma/client'
+import { getExecutionService, resolveLanguageId } from '../services/execution'
+import { executionQueue } from '../lib/queue'
 
 const router = Router()
 
@@ -442,6 +444,149 @@ router.post('/:id/bugfix/:runId/reject', async (req: Request, res: Response) => 
   } catch (error: any) {
     console.error('Bugfix rejection failed:', error)
     res.status(500).json({ error: `Rejection failed: ${error.message}` })
+  }
+})
+
+/**
+ * POST /api/repositories/:id/bugfix/:runId/execute
+ * Triggers async execution of the en-memory patched file.
+ * Submits execution request to BullMQ execution queue.
+ */
+router.post('/:id/bugfix/:runId/execute', bugfixRateLimit, async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const runId = req.params.runId as string
+  const userId = req.user?.sub
+
+  if (!userId) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  try {
+    const skillRun = await prisma.skillRun.findUnique({
+      where: { id: runId },
+      include: {
+        repository: { include: { workspace: true } },
+      },
+    }) as any
+
+    if (!skillRun || skillRun.repository.workspace.userId !== userId) {
+      res.status(404).json({ error: 'Skill run not found' })
+      return
+    }
+
+    if (skillRun.repositoryId !== id) {
+      res.status(400).json({ error: 'Skill run does not belong to this repository' })
+      return
+    }
+
+    if (skillRun.status !== 'PROPOSED') {
+      res.status(400).json({ error: `Execution is only allowed for proposed fixes. Current status: ${skillRun.status}` })
+      return
+    }
+
+    if (skillRun.executionStatus !== 'NOT_STARTED') {
+      res.status(400).json({ error: `Execution is already in state: ${skillRun.executionStatus}` })
+      return
+    }
+
+    // Detect language from file path
+    const diff = skillRun.proposedDiff as { filePath?: string }
+    if (!diff || !diff.filePath) {
+      res.status(400).json({ error: 'No proposed diff / file path associated with this skill run' })
+      return
+    }
+
+    const languageId = resolveLanguageId(diff.filePath)
+    if (!languageId) {
+      res.status(400).json({ error: `Unsupported file extension for code execution: ${diff.filePath}` })
+      return
+    }
+
+    // Check if execution service is configured
+    const execService = getExecutionService()
+    if (!execService) {
+      // Mark as DONE with skipped result
+      await prisma.skillRun.update({
+        where: { id: runId },
+        data: {
+          executionStatus: 'DONE',
+          executionResult: {
+            passed: false,
+            stdout: null,
+            stderr: 'Execution sandbox not configured on the server. Configure JUDGE0_BASE_URL.',
+            exitCode: null,
+            status: 'Skipped',
+            attemptedAt: new Date().toISOString(),
+          },
+        },
+      })
+      res.json({ status: 'skipped', reason: 'Execution sandbox not configured' })
+      return
+    }
+
+    // Update state to QUEUED in DB before enqueuing
+    await prisma.skillRun.update({
+      where: { id: runId },
+      data: { executionStatus: 'QUEUED' },
+    })
+
+    // Enqueue BullMQ job
+    const job = await executionQueue.add('execute_code', {
+      skillRunId: runId,
+      workspaceId: skillRun.workspaceId,
+      languageId,
+      attemptCount: 0,
+    })
+
+    res.json({ status: 'queued', jobId: job.id })
+  } catch (error: any) {
+    console.error('Trigger execution failed:', error)
+    res.status(500).json({ error: `Trigger execution failed: ${error.message}` })
+  }
+})
+
+/**
+ * GET /api/repositories/:id/bugfix/:runId/execution-status
+ * Poll endpoint to check execution status.
+ */
+router.get('/:id/bugfix/:runId/execution-status', async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const runId = req.params.runId as string
+  const userId = req.user?.sub
+
+  if (!userId) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  try {
+    const skillRun = await prisma.skillRun.findUnique({
+      where: { id: runId },
+      include: {
+        repository: { include: { workspace: true } },
+      },
+    }) as any
+
+    if (!skillRun || skillRun.repository.workspace.userId !== userId) {
+      res.status(404).json({ error: 'Skill run not found' })
+      return
+    }
+
+    if (skillRun.repositoryId !== id) {
+      res.status(400).json({ error: 'Skill run does not belong to this repository' })
+      return
+    }
+
+    res.json({
+      executionStatus: skillRun.executionStatus,
+      executionResult: skillRun.executionResult,
+      attemptCount: skillRun.attemptCount,
+      proposedDiff: skillRun.proposedDiff,
+    })
+  } catch (error: any) {
+    console.error('Fetch execution status failed:', error)
+    res.status(500).json({ error: `Fetch execution status failed: ${error.message}` })
   }
 })
 

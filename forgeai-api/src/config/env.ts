@@ -17,6 +17,9 @@ const envSchema = z.object({
   VOYAGE_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   GEMINI_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   GROQ_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  // Phase 4: Judge0 execution sandbox (optional — absence causes graceful skip)
+  JUDGE0_BASE_URL: z.preprocess((val) => (val === '' ? undefined : val), z.string().url().optional()),
+  JUDGE0_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 })
 
 function validateEnv() {

@@ -15,6 +15,7 @@ import skillRunsRoutes from './routes/skillRuns'
 
 // Import indexing worker to start listening to the BullMQ queue
 import './workers/indexing'
+import './workers/execution.worker'
 
 const app = express()
 

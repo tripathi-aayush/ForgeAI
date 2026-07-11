@@ -209,6 +209,13 @@ export default function RepositoryPage({
   const [isApprovingOrRejecting, setIsApprovingOrRejecting] = useState(false)
   const [editedCode, setEditedCode] = useState<string | null>(null)
 
+  // Code execution states (Phase 4)
+  const [executionStatus, setExecutionStatus] = useState<'NOT_STARTED' | 'QUEUED' | 'RUNNING' | 'DONE'>('NOT_STARTED')
+  const [executionResult, setExecutionResult] = useState<any>(null)
+  const [executionAttempts, setExecutionAttempts] = useState(0)
+  const [isPollingExecution, setIsPollingExecution] = useState(false)
+
+
   // Review mode states
   const [reviewInput, setReviewInput] = useState('')
   const [reviewInputType, setReviewInputType] = useState<'diff' | 'url'>('diff')
@@ -247,6 +254,10 @@ export default function RepositoryPage({
       })
       setEditedCode(null)
       setIsEditingFix(false)
+      // Reset execution states
+      setExecutionStatus('NOT_STARTED')
+      setExecutionResult(null)
+      setExecutionAttempts(0)
     } catch (err: any) {
       console.error('Bugfix diagnosis failed:', err)
       alert(`Diagnosis failed: ${err.message}`)
@@ -276,6 +287,10 @@ export default function RepositoryPage({
       setActiveBugfix(null)
       setBugfixInput('')
       setDrawerMode('ask')
+      // Reset execution states
+      setExecutionStatus('NOT_STARTED')
+      setExecutionResult(null)
+      setExecutionAttempts(0)
       queryClient.invalidateQueries({ queryKey: ['repository', repoId] })
     } catch (err: any) {
       console.error('Approval failed:', err)
@@ -295,6 +310,10 @@ export default function RepositoryPage({
       setActiveBugfix(null)
       setEditedCode(null)
       setIsEditingFix(false)
+      // Reset execution states
+      setExecutionStatus('NOT_STARTED')
+      setExecutionResult(null)
+      setExecutionAttempts(0)
     } catch (err: any) {
       console.error('Rejection failed:', err)
       alert(`Rejection failed: ${err.message}`)
@@ -302,6 +321,89 @@ export default function RepositoryPage({
       setIsApprovingOrRejecting(false)
     }
   }
+
+  const handleTestFix = async () => {
+    if (!activeBugfix || isPollingExecution) return
+    setIsPollingExecution(true)
+    setExecutionStatus('QUEUED')
+    setExecutionResult(null)
+
+    try {
+      const data = await api<{ status: string; jobId?: string; reason?: string }>(
+        `/api/repositories/${repoId}/bugfix/${activeBugfix.id}/execute`,
+        { method: 'POST' }
+      )
+
+      if (data.status === 'skipped') {
+        setExecutionStatus('DONE')
+        setExecutionResult({
+          passed: false,
+          stdout: null,
+          stderr: data.reason || 'Execution sandbox not configured',
+          exitCode: null,
+          status: 'Skipped',
+        })
+        setIsPollingExecution(false)
+        return
+      }
+
+      // Start polling loop every 2 seconds
+      let pollCount = 0
+      const maxPolls = 20 // 20 * 2s = 40s maximum client-side timeout
+
+      const interval = setInterval(async () => {
+        pollCount++
+        if (pollCount > maxPolls) {
+          clearInterval(interval)
+          setExecutionStatus('DONE')
+          setExecutionResult({
+            passed: false,
+            stdout: null,
+            stderr: 'Client polling timed out after 40 seconds.',
+            exitCode: null,
+            status: 'Timeout',
+          })
+          setIsPollingExecution(false)
+          return
+        }
+
+        try {
+          const statusRes = await api<{
+            executionStatus: 'NOT_STARTED' | 'QUEUED' | 'RUNNING' | 'DONE'
+            executionResult: any
+            attemptCount: number
+            proposedDiff?: any
+          }>(`/api/repositories/${repoId}/bugfix/${activeBugfix.id}/execution-status`)
+
+          setExecutionStatus(statusRes.executionStatus)
+          setExecutionAttempts(statusRes.attemptCount)
+
+          // If a re-diagnosis happened (proposedDiff updated on backend), sync it to editor/UI
+          if (statusRes.proposedDiff) {
+            setActiveBugfix({
+              id: activeBugfix.id,
+              confidence: activeBugfix.confidence,
+              diagnosis: statusRes.proposedDiff,
+            })
+          }
+
+          if (statusRes.executionStatus === 'DONE') {
+            clearInterval(interval)
+            setExecutionResult(statusRes.executionResult)
+            setIsPollingExecution(false)
+          }
+        } catch (pollErr) {
+          console.error('Error polling execution status:', pollErr)
+        }
+      }, 2000)
+    } catch (err: any) {
+      console.error('Failed to trigger execution:', err)
+      alert(`Failed to trigger execution: ${err.message}`)
+      setExecutionStatus('NOT_STARTED')
+      setIsPollingExecution(false)
+    }
+  }
+
 
   // ── Review handlers ──────────────────────────────────────────────────────────
 
@@ -785,7 +887,90 @@ export default function RepositoryPage({
                     <li>Click <strong>Approve &amp; Open PR</strong> to commit the fix and open a branch on GitHub.</li>
                   </ul>
                 </div>
+
+                {/* ── Execution sandbox panel (Phase 4) ── */}
+                <div className="rounded-xl border border-border/40 bg-secondary/15 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Sandbox Testing
+                    </span>
+                    {executionStatus === 'DONE' && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                          executionResult?.passed
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        }`}
+                      >
+                        {executionResult?.passed ? 'Passed' : 'Failed'}
+                      </span>
+                    )}
+                  </div>
+
+                  {executionStatus === 'NOT_STARTED' && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Test the proposed fix inside our isolated execution sandbox before committing.
+                      </p>
+                      <Button
+                        onClick={handleTestFix}
+                        className="w-full text-xs font-semibold bg-primary hover:bg-primary/95 text-primary-foreground"
+                      >
+                        Run Sandbox Test
+                      </Button>
+                    </div>
+                  )}
+
+                  {(executionStatus === 'QUEUED' || executionStatus === 'RUNNING') && (
+                    <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span>
+                        {executionStatus === 'QUEUED'
+                          ? 'Enqueued in sandbox queue...'
+                          : `Running test in sandbox (Attempt ${executionAttempts}/2)...`}
+                      </span>
+                    </div>
+                  )}
+
+                  {executionStatus === 'DONE' && (
+                    <div className="space-y-3 text-xs">
+                      <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+                        <span>Status: {executionResult?.status || 'Unknown'}</span>
+                        <span>Exit Code: {executionResult?.exitCode ?? 'N/A'}</span>
+                      </div>
+
+                      {executionResult?.capReached && (
+                        <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-2.5 text-[11px] text-amber-400 leading-normal">
+                          ⚠️ {executionResult.note || 'Attempt cap reached.'}
+                        </div>
+                      )}
+
+                      {executionResult?.stdout && (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">stdout</span>
+                          <pre className="max-h-32 overflow-y-auto rounded bg-zinc-950 p-2 text-[10px] font-mono text-zinc-300 whitespace-pre-wrap">
+                            {executionResult.stdout}
+                          </pre>
+                        </div>
+                      )}
+
+                      {executionResult?.stderr && (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider">stderr / compile output</span>
+                          <pre className="max-h-32 overflow-y-auto rounded bg-rose-950/20 border border-rose-900/30 p-2 text-[10px] font-mono text-rose-300 whitespace-pre-wrap">
+                            {executionResult.stderr}
+                          </pre>
+                        </div>
+                      )}
+
+                      {!executionResult?.stdout && !executionResult?.stderr && (
+                        <p className="text-xs text-muted-foreground italic">No output returned.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
+
 
               {/* Action Buttons */}
               <div className="p-3 border-t border-border/30 bg-card/5 space-y-2">

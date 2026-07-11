@@ -24,3 +24,10 @@ export const PROTECTED_BRANCH_PATTERN = /^(main|master|develop)$/
 export const MAX_REVIEW_CONTEXT_CHUNKS = 6
 export const MAX_DOCS_CONTEXT_CHUNKS = 8
 
+// Phase 4: Execution Sandbox
+export const MAX_EXECUTION_CODE_BYTES   = 65_536  // 64 KB hard cap before sending to Judge0
+export const EXECUTION_POLL_TIMEOUT_MS  = 25_000  // 25s hard cap on polling loop
+export const EXECUTION_POLL_INTERVAL_MS = 1_500   // poll every 1.5 seconds
+export const MAX_CONCURRENT_EXECUTIONS  = 3       // per-workspace: QUEUED + RUNNING rows
+export const MAX_EXECUTION_ATTEMPTS     = 2       // hard cap on re-diagnosis cycles
+export const EXECUTION_QUEUE_NAME       = 'execute-code'
