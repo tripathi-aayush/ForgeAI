@@ -82,6 +82,7 @@ model Repository {
   workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   indexingStatus IndexingStatus @default(PENDING)
   indexingError  String?
+  embeddingProvider String    @default("GEMINI")
   lastIndexedAt  DateTime?
   chunks         CodeChunk[]
   skillRuns      SkillRun[]

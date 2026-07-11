@@ -332,7 +332,7 @@ router.post('/:id/ask', askRateLimit, async (req: Request, res: Response) => {
     }
 
     // 1. Generate query embedding
-    const embeddingService = getEmbeddingService()
+    const embeddingService = getEmbeddingService(repository.embeddingProvider)
     const queryEmbedding = await embeddingService.generateEmbedding(question)
 
     // 2. Perform Cosine Similarity vector search via pgvector

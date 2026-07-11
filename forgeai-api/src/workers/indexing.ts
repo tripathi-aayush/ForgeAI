@@ -10,6 +10,7 @@ import { getEmbeddingService } from '../services/embeddings'
 import { INDEX_QUEUE_NAME } from '../lib/queue'
 import { IndexingStatus } from '@prisma/client'
 import { MAX_INDEX_FILES, MAX_FILE_SIZE_KB } from '../config/constants'
+import { env } from '../config/env'
 
 // Indexing payload type
 interface IndexingJobData {
@@ -231,6 +232,112 @@ async function bulkInsertChunks(
 }
 
 /**
+ * Helper to process embedding batches for a given repository and provider.
+ * Supports automatic full restart/fallback to Jina on Gemini failure.
+ */
+export async function embedAndSaveChunks(
+  repositoryId: string,
+  chunks: CodeChunkInput[],
+  provider: 'GEMINI' | 'JINA',
+  jinaApiKey: string | undefined
+): Promise<'GEMINI' | 'JINA'> {
+  console.log(`Running embedding generation using provider: ${provider}`)
+  const embeddingService = getEmbeddingService(provider)
+  const batchSize = 100 // Safe batch size (limit is 250 items per request) to minimize request overhead
+
+  // Clear out any old chunks first to keep the repository's vector space consistent
+  await withRetry(() =>
+    prisma.codeChunk.deleteMany({
+      where: { repositoryId },
+    })
+  )
+
+  try {
+    for (let idx = 0; idx < chunks.length; idx += batchSize) {
+      if (idx > 0) {
+        // Proactive delay between batches to avoid bursting requests
+        await new Promise((r) => setTimeout(r, 1200))
+      }
+
+      const batch = chunks.slice(idx, idx + batchSize)
+      const contents = batch.map((c) => `File: ${c.filePath}\n\n${c.content}`)
+
+      console.log(
+        `Generating embeddings with ${provider} for batch ${Math.floor(idx / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`
+      )
+
+      let embeddings: number[][] = []
+      let retriesLeft = 3
+      const baseDelayMs = 2000
+
+      while (true) {
+        try {
+          embeddings = await embeddingService.generateEmbeddings(contents)
+          break // Success!
+        } catch (err: any) {
+          const isRateLimit = err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')
+          if (isRateLimit && retriesLeft > 0) {
+            retriesLeft--
+
+            let waitTimeMs = baseDelayMs
+            const retryMatch = err.message.match(/Please retry in ([\d.]+)s/i)
+            if (retryMatch && retryMatch[1]) {
+              const seconds = parseFloat(retryMatch[1])
+              if (!isNaN(seconds)) {
+                // Add a small buffer of 500ms to be safe
+                waitTimeMs = Math.ceil(seconds * 1000) + 500
+              }
+            } else {
+              waitTimeMs = baseDelayMs * (3 - retriesLeft)
+            }
+
+            console.warn(
+              `⚠️ ${provider} Embeddings API rate limited (429). Retrying in ${waitTimeMs}ms... (${retriesLeft} retries left)`
+            )
+            await new Promise((r) => setTimeout(r, waitTimeMs))
+            continue
+          }
+
+          throw err
+        }
+      }
+
+      // Zip chunks with embeddings
+      const chunksWithEmbeddings = batch.map((chunk, i) => ({
+        ...chunk,
+        embedding: embeddings[i],
+      }))
+
+      // Save to database
+      await withRetry(() => bulkInsertChunks(chunksWithEmbeddings))
+    }
+
+    return provider
+  } catch (error: any) {
+    // If Gemini failed and we have a Jina key, fall back to Jina
+    if (provider === 'GEMINI' && jinaApiKey) {
+      console.warn(
+        `⚠️ Gemini embeddings generation failed: ${error.message}. Discarding current chunks and falling back to Jina AI...`
+      )
+      
+      // Update repository provider in DB so it stays consistent
+      await withRetry(() =>
+        prisma.repository.update({
+          where: { id: repositoryId },
+          data: { embeddingProvider: 'JINA' },
+        })
+      )
+
+      // Restart execution entirely using JINA (re-entrant call)
+      return await embedAndSaveChunks(repositoryId, chunks, 'JINA', jinaApiKey)
+    }
+
+    // Otherwise (Jina failed or no Jina key), throw error
+    throw error
+  }
+}
+
+/**
  * Process a repository indexing job.
  */
 async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
@@ -261,13 +368,14 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
     console.error('Failed to decrypt user GitHub token:', err)
   }
 
-  // 2. Set repository status to INDEXING
+  // 2. Set repository status to INDEXING and reset provider
   await withRetry(() =>
     prisma.repository.update({
       where: { id: repositoryId },
       data: { 
         indexingStatus: IndexingStatus.INDEXING,
-        indexingError: null
+        indexingError: null,
+        embeddingProvider: 'GEMINI'
       },
     })
   )
@@ -327,76 +435,14 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
 
     console.log(`Generated ${allChunks.length} chunks from files.`)
 
-    const embeddingService = getEmbeddingService()
-    const batchSize = 100 // Safe batch size (limit is 250 items per request) to minimize request overhead
-
-    // Clear out any old chunks first in case of re-indexing
-    await withRetry(() =>
-      prisma.codeChunk.deleteMany({
-        where: { repositoryId: repository.id },
-      })
+    // 6. Generate embeddings and save chunks (supports fallback)
+    const finalProvider = await embedAndSaveChunks(
+      repository.id,
+      allChunks,
+      'GEMINI',
+      env.JINA_API_KEY
     )
-
-    for (let idx = 0; idx < allChunks.length; idx += batchSize) {
-      if (idx > 0) {
-        // Proactive delay between batches to avoid bursting requests
-        await new Promise((r) => setTimeout(r, 1200))
-      }
-
-      const batch = allChunks.slice(idx, idx + batchSize)
-      const contents = batch.map((c) => `File: ${c.filePath}\n\n${c.content}`)
-
-      // Retrieve embeddings for this batch
-      console.log(`Generating embeddings for batch ${Math.floor(idx / batchSize) + 1}/${Math.ceil(allChunks.length / batchSize)}...`)
-      
-      let embeddings: number[][] = []
-      let retriesLeft = 3
-      const baseDelayMs = 2000
-
-      while (true) {
-        try {
-          embeddings = await embeddingService.generateEmbeddings(contents)
-          break // Success!
-        } catch (err: any) {
-          const isRateLimit = err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')
-          if (isRateLimit && retriesLeft > 0) {
-            retriesLeft--
-            
-            // Try to extract Gemini's suggested retry delay from the error message.
-            // Format: "Please retry in 42.42152596s."
-            let waitTimeMs = baseDelayMs
-            const retryMatch = err.message.match(/Please retry in ([\d.]+)s/i)
-            if (retryMatch && retryMatch[1]) {
-              const seconds = parseFloat(retryMatch[1])
-              if (!isNaN(seconds)) {
-                // Add a small buffer of 500ms to be safe
-                waitTimeMs = Math.ceil(seconds * 1000) + 500
-              }
-            } else {
-              // Fallback to exponential backoff
-              waitTimeMs = baseDelayMs * (3 - retriesLeft)
-            }
-            
-            console.warn(
-              `⚠️ Gemini Embeddings API rate limited (429). Retrying in ${waitTimeMs}ms... (${retriesLeft} retries left)`
-            )
-            await new Promise((r) => setTimeout(r, waitTimeMs))
-            continue
-          }
-          
-          throw err
-        }
-      }
-
-      // Zip chunks with embeddings
-      const chunksWithEmbeddings = batch.map((chunk, i) => ({
-        ...chunk,
-        embedding: embeddings[i],
-      }))
-
-      // Save to database
-      await withRetry(() => bulkInsertChunks(chunksWithEmbeddings))
-    }
+    console.log(`Saved chunks using provider: ${finalProvider}`)
 
     // 7. Update status to COMPLETED
     await withRetry(() =>

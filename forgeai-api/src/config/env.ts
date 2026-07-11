@@ -20,6 +20,8 @@ const envSchema = z.object({
   // Phase 4: Judge0 execution sandbox (optional — absence causes graceful skip)
   JUDGE0_BASE_URL: z.preprocess((val) => (val === '' ? undefined : val), z.string().url().optional()),
   JUDGE0_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  // Phase 5: Jina AI embedding provider (optional fallback)
+  JINA_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 })
 
 function validateEnv() {

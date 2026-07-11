@@ -156,6 +156,65 @@ export class GeminiEmbeddingService implements EmbeddingService {
 }
 
 /**
+ * Jina AI implementation using jina-embeddings-v3.
+ * Returns 1024-dimensional vectors, which we pad with zeros to 1536
+ * to match our existing database schema without migrations.
+ */
+export class JinaEmbeddingService implements EmbeddingService {
+  private apiKey: string
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey
+  }
+
+  async generateEmbedding(text: string): Promise<number[]> {
+    const embeds = await this.generateEmbeddings([text])
+    return embeds[0]
+  }
+
+  private padVectorTo1536(vector: number[]): number[] {
+    if (vector.length >= 1536) return vector.slice(0, 1536)
+    const padded = new Array(1536).fill(0)
+    for (let i = 0; i < vector.length; i++) {
+      padded[i] = vector[i]
+    }
+    return padded
+  }
+
+  async generateEmbeddings(texts: string[]): Promise<number[][]> {
+    if (!this.apiKey) {
+      throw new Error('Jina AI API Key is missing')
+    }
+
+    const response = await fetch('https://api.jina.ai/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'jina-embeddings-v3',
+        task: 'text-matching',
+        input: texts,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Jina AI Embeddings API error: ${response.status} - ${errorText}`)
+    }
+
+    const data = (await response.json()) as {
+      data: Array<{ embedding: number[]; index: number }>
+    }
+
+    // Sort by index to preserve input order
+    const sorted = [...data.data].sort((a, b) => a.index - b.index)
+    return sorted.map((item) => this.padVectorTo1536(item.embedding))
+  }
+}
+
+/**
  * Mock implementation for testing/demo when no api keys are set.
  * Returns random 1536-dimensional vectors.
  */
@@ -173,9 +232,17 @@ export class MockEmbeddingService implements EmbeddingService {
 }
 
 /**
- * Get active EmbeddingService instance based on configured environment variables.
+ * Get active EmbeddingService instance based on configured environment variables or selected provider.
  */
-export function getEmbeddingService(): EmbeddingService {
+export function getEmbeddingService(provider?: string): EmbeddingService {
+  if (provider === 'JINA') {
+    if (env.JINA_API_KEY) {
+      console.log('Using JinaEmbeddingService')
+      return new JinaEmbeddingService(env.JINA_API_KEY)
+    }
+    throw new Error('Jina AI API Key is missing from environment variables.')
+  }
+
   if (env.GEMINI_API_KEY) {
     console.log('Using GeminiEmbeddingService')
     return new GeminiEmbeddingService(env.GEMINI_API_KEY)
