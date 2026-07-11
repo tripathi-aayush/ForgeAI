@@ -327,10 +327,9 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
 
     console.log(`Generated ${allChunks.length} chunks from files.`)
 
-    // 6. Generate embeddings and bulk insert in batches
     const embeddingService = getEmbeddingService()
-    const batchSize = 30 // Small batch size to manage rate limits and payload sizes
-    
+    const batchSize = 100 // Safe batch size (limit is 250 items per request) to minimize request overhead
+
     // Clear out any old chunks first in case of re-indexing
     await withRetry(() =>
       prisma.codeChunk.deleteMany({
@@ -339,12 +338,55 @@ async function processIndexingJob(job: Job<IndexingJobData>): Promise<void> {
     )
 
     for (let idx = 0; idx < allChunks.length; idx += batchSize) {
+      if (idx > 0) {
+        // Proactive delay between batches to avoid bursting requests
+        await new Promise((r) => setTimeout(r, 1200))
+      }
+
       const batch = allChunks.slice(idx, idx + batchSize)
       const contents = batch.map((c) => `File: ${c.filePath}\n\n${c.content}`)
 
       // Retrieve embeddings for this batch
-      console.log(`Generating embeddings for batch ${idx / batchSize + 1}/${Math.ceil(allChunks.length / batchSize)}...`)
-      const embeddings = await embeddingService.generateEmbeddings(contents)
+      console.log(`Generating embeddings for batch ${Math.floor(idx / batchSize) + 1}/${Math.ceil(allChunks.length / batchSize)}...`)
+      
+      let embeddings: number[][] = []
+      let retriesLeft = 3
+      const baseDelayMs = 2000
+
+      while (true) {
+        try {
+          embeddings = await embeddingService.generateEmbeddings(contents)
+          break // Success!
+        } catch (err: any) {
+          const isRateLimit = err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')
+          if (isRateLimit && retriesLeft > 0) {
+            retriesLeft--
+            
+            // Try to extract Gemini's suggested retry delay from the error message.
+            // Format: "Please retry in 42.42152596s."
+            let waitTimeMs = baseDelayMs
+            const retryMatch = err.message.match(/Please retry in ([\d.]+)s/i)
+            if (retryMatch && retryMatch[1]) {
+              const seconds = parseFloat(retryMatch[1])
+              if (!isNaN(seconds)) {
+                // Add a small buffer of 500ms to be safe
+                waitTimeMs = Math.ceil(seconds * 1000) + 500
+              }
+            } else {
+              // Fallback to exponential backoff
+              waitTimeMs = baseDelayMs * (3 - retriesLeft)
+            }
+            
+            console.warn(
+              `⚠️ Gemini Embeddings API rate limited (429). Retrying in ${waitTimeMs}ms... (${retriesLeft} retries left)`
+            )
+            await new Promise((r) => setTimeout(r, waitTimeMs))
+            continue
+          }
+          
+          throw err
+        }
+      }
 
       // Zip chunks with embeddings
       const chunksWithEmbeddings = batch.map((chunk, i) => ({
