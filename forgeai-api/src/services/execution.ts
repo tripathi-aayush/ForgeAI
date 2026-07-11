@@ -147,11 +147,12 @@ class Judge0ExecutionService {
         continue
       }
 
-      // Sandbox Internal Error (statusId 13) indicates infrastructure failure, not code failure.
+      // Sandbox Internal Error (statusId 13) or Exec Format Error (statusId 14)
+      // indicates infrastructure/runtime sandbox failure, not code failure.
       // Throw an error to trigger Piston fallback.
-      if (statusId === 13) {
+      if (statusId === 13 || statusId === 14) {
         throw new Error(
-          `Judge0 sandbox returned Internal Error (status 13): ${submission.message || 'No details provided'}`
+          `Judge0 sandbox returned infrastructure error (status ${statusId}): ${submission.message || 'No details provided'}`
         )
       }
 
