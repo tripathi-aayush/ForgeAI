@@ -140,7 +140,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
 
     res.json({ user })
   } catch (error) {
-    console.error('Error fetching user:', error)
+    console.error('Error fetching user:', (error as Error).message)
     res.status(500).json({ error: 'Failed to fetch user profile' })
   }
 })

@@ -86,6 +86,25 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `MAX_INDEX_FILES` | No | `2000` | Max files to index per repo |
 | `MAX_FILE_SIZE_KB` | No | `512` | Max file size (KB) to index |
 
+### AI — LLM Providers
+
+At least one LLM key is required. If multiple are set, the service is selected in this priority order: **Groq → Gemini → OpenAI**.
+
+| Variable | Required | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | Conditional | Google Gemini API key (LLM + embeddings) |
+| `OPENAI_API_KEY` | Conditional | OpenAI API key (LLM + embeddings) |
+| `GROQ_API_KEY` | Conditional | Groq API key (LLM only, fast inference) |
+| `VOYAGE_API_KEY` | No | Voyage AI key (embeddings only, optional upgrade) |
+
+**Where to get them:**
+- **Google Gemini**: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — free tier available
+- **OpenAI**: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- **Groq**: [console.groq.com/keys](https://console.groq.com/keys) — free tier with fast inference
+- **Voyage AI**: [docs.voyageai.com/docs/api-key-and-installation](https://docs.voyageai.com/docs/api-key-and-installation)
+
+> **Recommendation for free-tier setup:** Set `GEMINI_API_KEY` only. It covers both LLM completions and embeddings without requiring additional accounts.
+
 ### Code Execution Sandbox (Optional)
 
 | Variable | Required | Description |
@@ -105,8 +124,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | No | `http://localhost:4000` | Backend API URL |
-| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | Frontend URL |
+| `NEXT_PUBLIC_API_URL` | No | `http://localhost:4000` | Backend API base URL (used by Next.js server-side proxy routes) |
 
 ---
 
@@ -119,7 +137,6 @@ Set in: Vercel Dashboard → Project → Settings → Environment Variables
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_API_URL` | Your Render backend URL (e.g., `https://forgeai-api.onrender.com`) |
-| `NEXT_PUBLIC_APP_URL` | Your Vercel URL (e.g., `https://forgeai.vercel.app`) |
 
 ### Render (forgeai-api)
 
@@ -136,6 +153,10 @@ Set in: Render Dashboard → Service → Environment
 | `JWT_SECRET` | A strong random secret (see generation command above) |
 | `ENCRYPTION_KEY` | A 64-char hex key (see generation command above) |
 | `FRONTEND_URL` | Your Vercel URL (e.g., `https://forgeai.vercel.app`) |
+| `GEMINI_API_KEY` | (or `OPENAI_API_KEY` or `GROQ_API_KEY`) Your chosen LLM provider key |
+| `VOYAGE_API_KEY` | Optional — only if using Voyage AI for embeddings |
+| `JUDGE0_BASE_URL` | Optional — base URL of your Judge0 instance (if self-hosting) |
+| `JUDGE0_API_KEY` | Optional — API key for your Judge0 instance |
 
 > **Important:** Create a **separate** GitHub OAuth App for production with
 > the production callback URL: `https://forgeai.vercel.app/api/auth/github/callback`

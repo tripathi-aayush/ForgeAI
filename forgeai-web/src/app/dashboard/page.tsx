@@ -312,12 +312,26 @@ export default function DashboardPage() {
           </div>
 
           {/* Unified Skill Run History */}
-          {skillRuns.length > 0 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <Terminal className="h-5 w-5 text-primary" />
-                Recent Skill Runs
-              </h2>
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-primary" />
+              Recent Skill Runs
+            </h2>
+
+            {skillRuns.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/40 bg-card/10 py-10 px-6 text-center backdrop-blur-md">
+                <Terminal className="h-9 w-9 text-muted-foreground/30" />
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">No skill runs yet</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
+                    Open a repository and use <span className="text-primary font-medium">Ask</span>,{' '}
+                    <span className="text-violet-400 font-medium">Fix a Bug</span>,{' '}
+                    <span className="text-sky-400 font-medium">Review</span>, or{' '}
+                    <span className="text-teal-400 font-medium">Docs</span> to see results here.
+                  </p>
+                </div>
+              </div>
+            ) : (
               <div className="grid gap-3">
                 {skillRuns.map((run) => {
                   // Type badge styling
@@ -399,8 +413,8 @@ export default function DashboardPage() {
                   )
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
         </main>
       </div>

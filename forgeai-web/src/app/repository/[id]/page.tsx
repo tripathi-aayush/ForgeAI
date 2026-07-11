@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import ReactMarkdown from 'react-markdown'
 import {
   ArrowLeft,
+  AlertTriangle,
   Folder,
   FileCode,
   Send,
@@ -231,6 +232,10 @@ export default function RepositoryPage({
   const [isCommittingDocs, setIsCommittingDocs] = useState(false)
   const [docsPrUrl, setDocsPrUrl] = useState<string | null>(null)
 
+  // Inline error/success notification state (replaces alert())
+  const [skillError, setSkillError] = useState<string | null>(null)
+  const [prSuccessUrl, setPrSuccessUrl] = useState<string | null>(null)
+
   const editorRef = useRef<any>(null)
   const diffEditorRef = useRef<any>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -260,7 +265,7 @@ export default function RepositoryPage({
       setExecutionAttempts(0)
     } catch (err: any) {
       console.error('Bugfix diagnosis failed:', err)
-      alert(`Diagnosis failed: ${err.message}`)
+      setSkillError(`Diagnosis failed: ${err.message}`)
     } finally {
       setIsDiagnosing(false)
     }
@@ -283,7 +288,7 @@ export default function RepositoryPage({
         }
       )
 
-      alert(`Success! Pull request opened: ${res.prUrl}`)
+      setPrSuccessUrl(res.prUrl)
       setActiveBugfix(null)
       setBugfixInput('')
       setDrawerMode('ask')
@@ -294,7 +299,7 @@ export default function RepositoryPage({
       queryClient.invalidateQueries({ queryKey: ['repository', repoId] })
     } catch (err: any) {
       console.error('Approval failed:', err)
-      alert(`Approval failed: ${err.message}`)
+      setSkillError(`Approval failed: ${err.message}`)
     } finally {
       setIsApprovingOrRejecting(false)
     }
@@ -316,7 +321,7 @@ export default function RepositoryPage({
       setExecutionAttempts(0)
     } catch (err: any) {
       console.error('Rejection failed:', err)
-      alert(`Rejection failed: ${err.message}`)
+      setSkillError(`Rejection failed: ${err.message}`)
     } finally {
       setIsApprovingOrRejecting(false)
     }
@@ -349,22 +354,22 @@ export default function RepositoryPage({
 
       // Start polling loop every 2 seconds
       let pollCount = 0
-      const maxPolls = 20 // 20 * 2s = 40s maximum client-side timeout
+      // No hard client timeout — the backend guarantees DONE eventually.
+      // A soft warning is shown at 45s (see inside interval).
 
       const interval = setInterval(async () => {
         pollCount++
-        if (pollCount > maxPolls) {
-          clearInterval(interval)
-          setExecutionStatus('DONE')
-          setExecutionResult({
-            passed: false,
-            stdout: null,
-            stderr: 'Client polling timed out after 40 seconds.',
-            exitCode: null,
-            status: 'Timeout',
-          })
-          setIsPollingExecution(false)
-          return
+        // ── Soft slow-warning: keep polling until backend confirms DONE ──────
+        // The backend worst-case (Judge0 25s + Piston fallback ~10s + BullMQ
+        // overhead) can exceed the old 40s hard client cap. Instead of
+        // fabricating a "Timeout" failure, surface a warning after 45s and
+        // keep polling — the backend is guaranteed to write DONE eventually.
+        const SLOW_WARNING_AFTER_MS = 45_000
+        const POLL_INTERVAL_MS = 2000
+        if (pollCount * POLL_INTERVAL_MS >= SLOW_WARNING_AFTER_MS && !executionResult) {
+          setSkillError(
+            'Still processing \u2014 this is taking longer than usual. The backend is still running; please wait.'
+          )
         }
 
         try {
@@ -398,7 +403,7 @@ export default function RepositoryPage({
       }, 2000)
     } catch (err: any) {
       console.error('Failed to trigger execution:', err)
-      alert(`Failed to trigger execution: ${err.message}`)
+      setSkillError(`Failed to trigger execution: ${err.message}`)
       setExecutionStatus('NOT_STARTED')
       setIsPollingExecution(false)
     }
@@ -426,7 +431,7 @@ export default function RepositoryPage({
       setReviewComments(data.comments)
     } catch (err: any) {
       console.error('Review failed:', err)
-      alert(`Review failed: ${err.message}`)
+      setSkillError(`Review failed: ${err.message}`)
     } finally {
       setIsReviewing(false)
     }
@@ -451,7 +456,7 @@ export default function RepositoryPage({
       setEditedDocs(data.draft)
     } catch (err: any) {
       console.error('Docs generation failed:', err)
-      alert(`Documentation generation failed: ${err.message}`)
+      setSkillError(`Documentation generation failed: ${err.message}`)
     } finally {
       setIsGeneratingDocs(false)
     }
@@ -469,7 +474,7 @@ export default function RepositoryPage({
       setDocsPrUrl(data.prUrl)
     } catch (err: any) {
       console.error('Docs commit failed:', err)
-      alert(`Commit failed: ${err.message}`)
+      setSkillError(`Commit failed: ${err.message}`)
     } finally {
       setIsCommittingDocs(false)
     }
@@ -837,6 +842,44 @@ export default function RepositoryPage({
               </div>
             )}
           </div>
+
+          {/* ── Inline error / success banners (replaces alert()) ─────────────── */}
+          {skillError && (
+            <div className="mx-3 mb-0 mt-2 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-400">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span className="flex-1 leading-relaxed">{skillError}</span>
+              <button
+                onClick={() => setSkillError(null)}
+                className="ml-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity text-rose-300"
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {prSuccessUrl && (
+            <div className="mx-3 mb-0 mt-2 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-400">
+              <CheckCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span className="flex-1 leading-relaxed">
+                Pull request opened successfully!{' '}
+                <a
+                  href={prSuccessUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 font-semibold hover:text-emerald-300"
+                >
+                  View PR →
+                </a>
+              </span>
+              <button
+                onClick={() => setPrSuccessUrl(null)}
+                className="ml-1 shrink-0 opacity-60 hover:opacity-100 transition-opacity text-emerald-300"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* ── Bugfix Proposal Active View ─────────────────────────────── */}
           {activeBugfix !== null ? (

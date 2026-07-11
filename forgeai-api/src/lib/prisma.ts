@@ -34,7 +34,7 @@ export async function withRetry<T>(
       return await fn()
     } catch (err: unknown) {
       const code = (err as { code?: string }).code
-      const isConnectionError = ['P1001', 'P1008', 'P1017'].includes(code ?? '')
+      const isConnectionError = ['P1001', 'P1008', 'P1017', 'P2024'].includes(code ?? '')
 
       if (isConnectionError && attempt < retries) {
         console.warn(

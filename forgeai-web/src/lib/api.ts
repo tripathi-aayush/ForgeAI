@@ -12,20 +12,41 @@ interface FetchOptions extends RequestInit {
   skipAuth?: boolean
 }
 
+const COLD_START_RETRY_STATUSES = [502, 503]
+const COLD_START_MAX_RETRIES = 2
+const COLD_START_RETRY_DELAY_MS = 1000
+
+async function fetchWithRetry(url: string, options: RequestInit, retriesLeft: number): Promise<Response> {
+  const response = await fetch(url, options)
+
+  if (
+    !response.ok &&
+    COLD_START_RETRY_STATUSES.includes(response.status) &&
+    retriesLeft > 0
+  ) {
+    await new Promise((r) => setTimeout(r, COLD_START_RETRY_DELAY_MS))
+    return fetchWithRetry(url, options, retriesLeft - 1)
+  }
+
+  return response
+}
+
 export async function api<T = unknown>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
   const { skipAuth: _skipAuth, ...fetchOptions } = options
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const fetchOpts: RequestInit = {
     ...fetchOptions,
-    credentials: 'include',
+    credentials: 'include' as RequestCredentials,
     headers: {
       'Content-Type': 'application/json',
       ...fetchOptions.headers,
     },
-  })
+  }
+
+  const response = await fetchWithRetry(`${API_BASE}${endpoint}`, fetchOpts, COLD_START_MAX_RETRIES)
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}))
