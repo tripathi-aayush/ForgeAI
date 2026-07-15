@@ -3,6 +3,9 @@ import { prisma } from '../lib/prisma'
 import { env } from '../config/env'
 import { IndexingStatus } from '@prisma/client'
 import { getEmbeddingService } from '../services/embeddings'
+import express from 'express'
+import http from 'http'
+import repositoriesRoutes from '../routes/repositories'
 
 /**
  * Unit/integration test for Jina AI embedding provider fallback.
@@ -272,6 +275,189 @@ testAsync('RAG query routing correctly uses repository.embeddingProvider to gene
     await cleanupTestRepository(repo.id)
 
     // Restore original globals
+    env.JINA_API_KEY = originalJinaApiKey
+    env.GEMINI_API_KEY = originalGeminiApiKey
+    global.fetch = originalFetch
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Test 3: /ask route handler integration — verifies the route's own DB read
+// drives provider selection, not a hardcoded default or cached value.
+// ---------------------------------------------------------------------------
+testAsync('/ask route handler reads embeddingProvider from DB and routes to Jina (not Gemini) for JINA repo', async () => {
+  const originalJinaApiKey = env.JINA_API_KEY
+  const originalGeminiApiKey = env.GEMINI_API_KEY
+  const originalFetch = global.fetch
+
+  env.JINA_API_KEY = 'mock-jina-api-key'
+  env.GEMINI_API_KEY = 'mock-gemini-api-key'
+
+  // 1. Seed: create repo with embeddingProvider = JINA and one chunk
+  const repo = await setupTestRepository()
+
+  // Read the real workspace userId that the route will compare against.
+  // The route checks: repository.workspace.userId !== userId (from req.user.sub).
+  // We must inject the ACTUAL db userId — a hardcoded string would fail the check.
+  const repoWithWorkspace = await prisma.repository.findUnique({
+    where: { id: repo.id },
+    include: { workspace: true },
+  }) as any
+  const actualUserId = repoWithWorkspace.workspace.userId
+
+  await prisma.repository.update({
+    where: { id: repo.id },
+    data: {
+      embeddingProvider: 'JINA',
+      indexingStatus: IndexingStatus.COMPLETED,  // route requires COMPLETED
+    }
+  })
+
+  // Insert a real code chunk so the vector query has something to return.
+  // The embedding must be 1536-dimensional — we use zeros since this is a
+  // content test, not a similarity precision test.
+  const zeroPaddedVector = `[${new Array(1536).fill(0).join(',')}]`
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "code_chunks" ("id", "repositoryId", "filePath", "content", "startLine", "endLine", "embedding", "updatedAt")
+     VALUES ($1, $2, 'test.py', 'print("hello")', 1, 1, $3::vector, NOW())`,
+    'route-test-chunk-' + Math.random(),
+    repo.id,
+    zeroPaddedVector
+  )
+
+  // 2. Spy: track which embedding API the route actually calls
+  const spies: { jinaCalled: boolean; geminiEmbedCalled: boolean } = {
+    jinaCalled: false,
+    geminiEmbedCalled: false,
+  }
+
+  global.fetch = (async (url: string, init?: any) => {
+    const urlString = url.toString()
+
+    if (urlString.includes('api.jina.ai')) {
+      spies.jinaCalled = true
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'jina-embeddings-v3',
+          object: 'list',
+          data: [{ object: 'embedding', index: 0, embedding: new Array(1024).fill(0.5) }],
+        }),
+      } as any
+    }
+
+    // Intercept Gemini EMBEDDING calls specifically (batchEmbedContents)
+    if (urlString.includes('generativelanguage.googleapis.com') && urlString.includes('batchEmbedContents')) {
+      spies.geminiEmbedCalled = true
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          embeddings: [{ values: new Array(1536).fill(0.9) }],
+        }),
+      } as any
+    }
+
+    // Intercept Gemini/Groq LLM calls (generateContent) — return a mock answer
+    if (urlString.includes('generativelanguage.googleapis.com') && urlString.includes('generateContent')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'Mock LLM answer' }] } }],
+        }),
+      } as any
+    }
+
+    if (urlString.includes('api.groq.com')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'Mock Groq answer' } }],
+        }),
+      } as any
+    }
+
+    if (urlString.includes('api.openai.com')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'Mock OpenAI answer' } }],
+        }),
+      } as any
+    }
+
+    return originalFetch(url, init)
+  }) as any
+
+  // 3. Spin up a minimal Express app with the REAL repositories router.
+  //    Inject req.user via a pre-middleware so the auth check inside the route
+  //    (req.user?.sub) is satisfied without a real JWT.
+  //    IMPORTANT: inject the ACTUAL db user id so workspace.userId === req.user.sub.
+  const testApp = express()
+  testApp.use(express.json())
+  testApp.use((_req: any, _res: any, next: any) => {
+    ;(_req as any).user = { sub: actualUserId }
+    next()
+  })
+  testApp.use('/api/repositories', repositoriesRoutes)
+
+  const server = http.createServer(testApp)
+  await new Promise<void>((resolve) => server.listen(0, resolve))
+  const port = (server.address() as any).port
+
+  try {
+    // 4. POST /api/repositories/:id/ask — this goes through the REAL handler
+    //    which does its own prisma.repository.findUnique → reads embeddingProvider
+    const body = JSON.stringify({ question: 'What does this code do?' })
+    const responseData = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port,
+          path: `/api/repositories/${repo.id}/ask`,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        },
+        (res) => {
+          let raw = ''
+          res.on('data', (chunk) => { raw += chunk })
+          res.on('end', () => {
+            resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw) })
+          })
+        }
+      )
+      req.on('error', reject)
+      req.write(body)
+      req.end()
+    })
+
+    // 5. Assert: route must have succeeded
+    assert(
+      responseData.status === 200,
+      `Expected HTTP 200 from /ask, got ${responseData.status}: ${JSON.stringify(responseData.body)}`
+    )
+
+    // 6. Assert: Jina was called for the query embedding (not Gemini)
+    //    This proves the route read embeddingProvider from the DB and used it.
+    assert(
+      spies.jinaCalled === true,
+      'Route handler must have called Jina for query embedding (embeddingProvider = JINA in DB)'
+    )
+    assert(
+      spies.geminiEmbedCalled === false,
+      'Route handler must NOT have called Gemini embedding API for a JINA-indexed repo. ' +
+      'If this fails, the route is ignoring repository.embeddingProvider from the DB.'
+    )
+
+    console.log('  ✅ /ask route handler reads embeddingProvider from DB correctly — Jina used, Gemini embedding skipped')
+
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await cleanupTestRepository(repo.id)
     env.JINA_API_KEY = originalJinaApiKey
     env.GEMINI_API_KEY = originalGeminiApiKey
     global.fetch = originalFetch
