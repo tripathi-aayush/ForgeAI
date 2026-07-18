@@ -31,3 +31,13 @@ export const EXECUTION_POLL_INTERVAL_MS = 1_500   // poll every 1.5 seconds
 export const MAX_CONCURRENT_EXECUTIONS  = 3       // per-workspace: QUEUED + RUNNING rows
 export const MAX_EXECUTION_ATTEMPTS     = 2       // hard cap on re-diagnosis cycles
 export const EXECUTION_QUEUE_NAME       = 'execute-code'
+
+// Phase 6: GitBrain Lite — Discovery Engine
+// Cap total DiscoveredRepo rows — this is a curated catalog, not a GitHub mirror.
+// When exceeded, oldest rows by lastRefreshedAt are pruned after each run.
+export const DISCOVERY_CATALOG_CAP  = 300
+export const DISCOVERY_QUEUE_NAME   = 'repo-discovery'
+// Trigger endpoint: once per hour max, and only for ADMIN_USER_ID.
+// Each trigger can cascade into LLM + embedding calls across the full query list.
+export const DISCOVERY_TRIGGER_WINDOW_MS = 60 * 60 * 1_000  // 1 hour
+export const DISCOVERY_TRIGGER_MAX       = 1

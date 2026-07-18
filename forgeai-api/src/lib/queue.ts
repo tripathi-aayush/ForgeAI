@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq'
 import { getRedisConnection } from './redis'
-import { EXECUTION_QUEUE_NAME } from '../config/constants'
+import { EXECUTION_QUEUE_NAME, DISCOVERY_QUEUE_NAME } from '../config/constants'
 
 export const INDEX_QUEUE_NAME = 'repo-indexing'
 
@@ -29,3 +29,17 @@ export const executionQueue = new Queue(EXECUTION_QUEUE_NAME, {
     removeOnFail: false,
   },
 })
+
+// Phase 6: Discovery queue.
+// Weekly repeatable job is registered in the worker. No retries — if a weekly run fails,
+// the next scheduled run will try again. One-off trigger jobs are added via the API.
+export { DISCOVERY_QUEUE_NAME }
+export const discoveryQueue = new Queue(DISCOVERY_QUEUE_NAME, {
+  connection: getRedisConnection() as any,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: true,
+    removeOnFail: false,
+  },
+})
+

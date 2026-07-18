@@ -12,10 +12,12 @@ import bugfixRoutes from './routes/bugfix'
 import reviewRoutes from './routes/review'
 import docsRoutes from './routes/docs'
 import skillRunsRoutes from './routes/skillRuns'
+import discoverRoutes from './routes/discover'
 
 // Import indexing worker to start listening to the BullMQ queue
 import './workers/indexing'
 import './workers/execution.worker'
+import './workers/discovery.worker'
 
 const app = express()
 
@@ -33,10 +35,14 @@ app.use(express.json())
 app.use(cookieParser())
 
 // ---------------------------------------------------------------------------
-// Public routes
+// Public routes (no auth required)
 // ---------------------------------------------------------------------------
 app.use('/api/health', healthRoutes)
 app.use('/api/auth', authRoutes)
+
+// Phase 6: Discovery catalog browse and semantic search — public (no auth required).
+// Only POST /api/discover/trigger requires auth (handled inside the route handler).
+app.use('/api/discover', discoverRoutes)
 
 // ---------------------------------------------------------------------------
 // Protected routes (require valid JWT session)

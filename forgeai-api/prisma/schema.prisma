@@ -5,6 +5,8 @@
 // Phase 2: SkillRun (bug fix tracking)
 // Phase 3: Code Review and Documentation skills
 // Phase 4: Code Execution Sandbox
+// Phase 5: Swappable embedding providers (Gemini/Jina)
+// Phase 6: GitBrain Lite — DiscoveredRepo catalog (separate from user repos)
 
 generator client {
   provider        = "prisma-client-js"
@@ -128,3 +130,39 @@ model SkillRun {
 
   @@map("skill_runs")
 }
+
+// Phase 6: GitBrain Lite — curated discovery catalog.
+// Entirely separate from user Repository/Workspace tables — no foreign keys.
+// Populated exclusively by the weekly scheduled discovery BullMQ job.
+// Tags are LLM-generated best-effort (not a trained classifier).
+//
+// Health score formula (see discovery.worker.ts for full derivation):
+//   clamp(log10(stars+1)*10 + max(0,40-daysSincePush/4) + max(0,20-issueRatio*100), 0, 100) / 100
+//
+// Embedding dimension: 1536 (matches code_chunks; Jina 1024-dim vectors are zero-padded).
+// embeddingProvider: tracks which provider was used for this row's embedding,
+//   so the search endpoint can filter to a consistent vector space.
+model DiscoveredRepo {
+  id                String   @id @default(cuid())
+  githubUrl         String   @unique
+  owner             String
+  name              String
+  description       String?
+  stars             Int      @default(0)
+  openIssues        Int      @default(0)
+  lastPushedAt      DateTime
+  domainTags        String[]
+  techTags          String[]
+  architectureTags  String[]
+  healthScore       Float    @default(0)
+  embedding         Unsupported("vector(1536)")?
+  embeddingProvider String   @default("GEMINI")
+  readmeSummary     String?  // stored for re-embedding without re-fetching
+  lastRefreshedAt   DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("discovered_repos")
+}
+
+

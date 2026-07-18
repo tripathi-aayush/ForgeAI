@@ -86,3 +86,70 @@ export function getGitHubLoginUrl(): string {
 export async function logout(): Promise<void> {
   await api('/api/auth/logout', { method: 'POST' })
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6: GitBrain Lite — Discovery API helpers
+// ---------------------------------------------------------------------------
+
+export interface DiscoveredRepo {
+  id: string
+  githubUrl: string
+  owner: string
+  name: string
+  description: string | null
+  stars: number
+  openIssues: number
+  lastPushedAt: string
+  domainTags: string[]
+  techTags: string[]
+  architectureTags: string[]
+  healthScore: number
+  embeddingProvider: string
+  lastRefreshedAt: string
+  similarity?: number
+}
+
+export interface DiscoverCatalogParams {
+  limit?: number
+  offset?: number
+  tag?: string
+  minStars?: number
+}
+
+export interface DiscoverSearchParams {
+  query: string
+  limit?: number
+  minStars?: number
+}
+
+export async function discoverCatalog(params: DiscoverCatalogParams = {}): Promise<{
+  repos: DiscoveredRepo[]
+  total: number
+  limit: number
+  offset: number
+}> {
+  const searchParams = new URLSearchParams()
+  if (params.limit)    searchParams.set('limit',    String(params.limit))
+  if (params.offset)   searchParams.set('offset',   String(params.offset))
+  if (params.tag)      searchParams.set('tag',      params.tag)
+  if (params.minStars) searchParams.set('minStars', String(params.minStars))
+  const qs = searchParams.toString()
+  return api<{ repos: DiscoveredRepo[]; total: number; limit: number; offset: number }>(
+    `/api/discover${qs ? `?${qs}` : ''}`
+  )
+}
+
+export async function discoverSearch(params: DiscoverSearchParams): Promise<{
+  results: DiscoveredRepo[]
+  provider: string
+  note: string
+}> {
+  return api<{ results: DiscoveredRepo[]; provider: string; note: string }>(
+    '/api/discover/search',
+    {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }
+  )
+}
+

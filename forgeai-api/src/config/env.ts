@@ -22,6 +22,10 @@ const envSchema = z.object({
   JUDGE0_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   // Phase 5: Jina AI embedding provider (optional fallback)
   JINA_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  // Phase 6: GitBrain Lite — admin user ID for the /api/discover/trigger endpoint.
+  // Set this to your own user ID (req.user.sub) to restrict trigger access.
+  // Leave unset to disable the trigger endpoint entirely.
+  ADMIN_USER_ID: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 })
 
 function validateEnv() {

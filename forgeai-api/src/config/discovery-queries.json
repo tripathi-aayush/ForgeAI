@@ -1,0 +1,20 @@
+[
+  { "q": "topic:machine-learning language:Python stars:>500", "label": "ml-python", "perPage": 10 },
+  { "q": "topic:deep-learning language:Python stars:>500", "label": "dl-python", "perPage": 10 },
+  { "q": "topic:data-science language:Python stars:>200", "label": "datascience-python", "perPage": 10 },
+  { "q": "topic:llm language:Python stars:>200", "label": "llm-python", "perPage": 10 },
+  { "q": "topic:web-framework language:TypeScript stars:>200", "label": "web-ts", "perPage": 10 },
+  { "q": "topic:react language:TypeScript stars:>500", "label": "react-ts", "perPage": 10 },
+  { "q": "topic:nextjs language:TypeScript stars:>200", "label": "nextjs", "perPage": 10 },
+  { "q": "topic:api language:Go stars:>500", "label": "api-go", "perPage": 10 },
+  { "q": "topic:cli language:Go stars:>200", "label": "cli-go", "perPage": 10 },
+  { "q": "topic:cli language:Rust stars:>200", "label": "cli-rust", "perPage": 10 },
+  { "q": "topic:systems language:Rust stars:>500", "label": "systems-rust", "perPage": 10 },
+  { "q": "topic:devops language:Python stars:>200", "label": "devops-python", "perPage": 10 },
+  { "q": "topic:kubernetes language:Go stars:>500", "label": "k8s-go", "perPage": 10 },
+  { "q": "topic:database language:Go stars:>200", "label": "db-go", "perPage": 10 },
+  { "q": "topic:api-framework language:Python stars:>500", "label": "api-python", "perPage": 10 },
+  { "q": "topic:algorithm language:Python stars:>500", "label": "algo-python", "perPage": 10 },
+  { "q": "topic:open-source language:JavaScript stars:>500", "label": "oss-js", "perPage": 10 },
+  { "q": "topic:developer-tools language:TypeScript stars:>200", "label": "devtools-ts", "perPage": 10 }
+]
