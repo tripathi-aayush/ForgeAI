@@ -182,14 +182,56 @@ Return ONLY valid JSON matching the schema. No markdown, no explanation.`
   const systemPrompt = `You are a code repository analyzer. Return only valid JSON.
 IMPORTANT: Tags are best-effort LLM classification, not a trained classifier. Keep tags concise and lowercase-hyphenated.`
 
-  try {
-    const raw = await llm.generateStructuredAnswer(prompt, systemPrompt)
-    const parsed = TagsSchema.safeParse(JSON.parse(raw))
-    if (parsed.success) return parsed.data
-  } catch (e) {
-    console.warn('[discovery] Tag parsing failed, using empty tags:', e)
+  const MAX_TAG_RETRIES = 3
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= MAX_TAG_RETRIES; attempt++) {
+    try {
+      const raw = await llm.generateStructuredAnswer(prompt, systemPrompt)
+
+      let parsed: ReturnType<typeof TagsSchema.safeParse>
+      try {
+        parsed = TagsSchema.safeParse(JSON.parse(raw))
+      } catch (jsonErr) {
+        console.warn(`[discovery] Tag JSON parse error for ${repoName} (attempt ${attempt}):`, jsonErr, '\nRaw:', raw.slice(0, 200))
+        lastError = jsonErr
+        continue
+      }
+
+      if (parsed.success) return parsed.data
+
+      // Zod validation failure — log the issues so they're visible
+      console.warn(
+        `[discovery] Tag Zod validation failed for ${repoName} (attempt ${attempt}):`,
+        parsed.error.flatten()
+      )
+      lastError = new Error('Zod validation failed')
+      // Don't retry on schema mismatch — the model format is wrong, retry won't help
+      break
+    } catch (e: any) {
+      const is429 = e?.message?.includes('429') || e?.message?.includes('rate_limit_exceeded')
+
+      if (is429 && attempt < MAX_TAG_RETRIES) {
+        // Parse the Groq-supplied retry delay from the error message, e.g. "Please try again in 2s"
+        let waitMs = 5000 // safe default
+        const retryMatch = e.message.match(/try again in ([\d.]+)s/i)
+        if (retryMatch?.[1]) {
+          waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 500
+        }
+        console.warn(`[discovery] Groq 429 for ${repoName} tagging — waiting ${waitMs}ms before retry (attempt ${attempt}/${MAX_TAG_RETRIES})`)
+        await new Promise(r => setTimeout(r, waitMs))
+        lastError = e
+        continue
+      }
+
+      // Non-429 error or retries exhausted
+      console.warn(`[discovery] Tag LLM call failed for ${repoName} (attempt ${attempt}):`, e?.message)
+      lastError = e
+      break
+    }
   }
 
+  console.warn(`[discovery] Giving up on tags for ${repoName} after ${MAX_TAG_RETRIES} attempts. Last error:`, lastError)
   // Safe fallback — empty tags, no crash
   return { domainTags: [], techTags: [], architectureTags: [], readmeSummary: description?.slice(0, 500) ?? '' }
 }
@@ -310,16 +352,11 @@ async function runDiscovery(): Promise<void> {
           let tags: TagsOutput
           let readmeContentForEmbed: string
 
+          // Only skip re-tagging if push timestamp is unchanged AND stored tags are non-empty.
+          // If tags are all empty (e.g. a prior run 429'd during tagging), we must re-tag even
+          // if the repo hasn't been pushed — otherwise the empty arrays get perpetuated forever.
+          let storedTags: { domainTags: string[]; techTags: string[]; architectureTags: string[] } | null = null
           if (pushUnchanged && existing[0].readmeSummary) {
-            // Skip expensive tagging — reuse stored summary
-            totalSkipped++
-            tags = {
-              domainTags: [],
-              techTags: [],
-              architectureTags: [],
-              readmeSummary: existing[0].readmeSummary,
-            }
-            // Pull existing tags from DB
             const existingFull = await prisma.$queryRawUnsafe<Array<{
               domainTags: string[]; techTags: string[]; architectureTags: string[]
             }>>(
@@ -327,13 +364,26 @@ async function runDiscovery(): Promise<void> {
               githubUrl
             )
             if (existingFull.length > 0) {
-              tags.domainTags = existingFull[0].domainTags
-              tags.techTags = existingFull[0].techTags
-              tags.architectureTags = existingFull[0].architectureTags
+              storedTags = existingFull[0]
+            }
+          }
+
+          const hasExistingTags = storedTags !== null &&
+            (storedTags.domainTags.length > 0 || storedTags.techTags.length > 0 || storedTags.architectureTags.length > 0)
+
+          if (pushUnchanged && existing[0]?.readmeSummary && hasExistingTags) {
+            // Push timestamp unchanged AND tags are non-empty — safe to skip
+            totalSkipped++
+            tags = {
+              domainTags: storedTags!.domainTags,
+              techTags: storedTags!.techTags,
+              architectureTags: storedTags!.architectureTags,
+              readmeSummary: existing[0].readmeSummary,
             }
             readmeContentForEmbed = existing[0].readmeSummary
           } else {
-            // Fetch README + manifest and generate tags
+            // Either push timestamp changed, no stored summary, or tags were empty (429-poisoned row)
+            // Fetch README + manifest and generate tags fresh
             const [readmeContent, manifestContent] = await Promise.all([
               fetchReadmeContent(octokit, item.owner.login, item.name),
               fetchManifestContent(octokit, item.owner.login, item.name),
